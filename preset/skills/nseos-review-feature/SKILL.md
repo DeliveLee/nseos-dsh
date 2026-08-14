@@ -17,7 +17,7 @@ description: 独立评审一个功能:对照其已批准合同、精确 diff、�
 - 完整校验语义见 `FLOW_MARKER_CONTRACT.md`(空文件/错 session/过期 >4h → 门禁 deny)。
 
 1. 读本项目的 Profile、已批准的 Feature Contract、State 与开发者 Handoff。
-2. 读 `references/QUALITY_AND_EVALUATION.md`、`references/SECURITY_POLICY.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/FEATURE_LIFECYCLE.md`,以及 **`references/VERIFICATION.md`——判断证据能否把好实现和坏实现区分开的唯一真源**(L0–L4 等级、四个判别问题、mutation receipts、三种已知 false-green 形态)。不要把它转述进派发消息:`quality-reviewer` 自己会读它。**本会话里读了它不等于把它放进了评审者的上下文**——正是这个错位让调用者过去把规则逐条手抄进每次派发,而且每次抄得都不一样。
+2. 读 `references/QUALITY_AND_EVALUATION.md`、`references/SECURITY.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/FEATURE_LIFECYCLE.md`,以及 **`references/VERIFICATION.md`——判断证据能否把好实现和坏实现区分开的唯一真源**(L0–L4 等级、四个判别问题、mutation receipts、三种已知 false-green 形态)。不要把它转述进派发消息:`quality-reviewer` 自己会读它。**本会话里读了它不等于把它放进了评审者的上下文**——正是这个错位让调用者过去把规则逐条手抄进每次派发,而且每次抄得都不一样。
 3. 确定精确的 branch/base/diff。把开发者摘要当作主张,不是证明。
 4. **本技能独占评审者派发、Review Report 与结论(v0.25.0)。** `nseos-build-feature` 停在 `VERIFYING` 并交出实现交接单;只有本技能能把功能移出 `VERIFYING`。把有界评审派给 `quality-reviewer` 角色子代理(`subagent` 工具);当信任边界、授权、数据或依赖发生变更时,加派 `security-reviewer`。
 

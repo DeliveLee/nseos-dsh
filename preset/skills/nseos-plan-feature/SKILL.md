@@ -17,7 +17,7 @@ description: 把一个项目请求变成可评审的功能合同、产品完整�
 - 完整校验语义见 `FLOW_MARKER_CONTRACT.md`(空文件/错 session/过期 >4h → 门禁 deny)。
 
 1. 若 `ai-nseos/PROJECT_PROFILE.md` 缺失或未初始化,先初始化它(幂等、低风险),再继续——不要让用户手动去做。
-2. 读 `references/FEATURE_LIFECYCLE.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/DECISION_RIGHTS.md` 以及 `templates/`。
+2. 读 `references/FEATURE_LIFECYCLE.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/AUTHORITY.md` 以及 `templates/`。
 3. 先按 Loop and Scope Policy 分类变更等级(Small / Standard / Complex / Exceptional)。Small 变更可用轻量模式:在会话内陈述合同要点(结果、范围与非目标、验收判据、所需证据),并在 marker 里以 `"mode":"lightweight"` 记录——与第 0 步同一套 `write` 规则(同一个「本会话 id」,勿猜、勿留占位),然后跳过功能目录。轻量模式降低的是文书,不是证据标准:一个没有活路径证据的 Small 变更仍是 `PENDING_LIVE_VERIFY`,不是完成。它也不允许跳过文档维护(FB-20260720-003):在已采纳文档体系的仓库里,收尾前明确判断一次——这次变更是否引入或改动了某个领域术语、某条业务规则(阈值/上限/校验/计算),或某个值得记录的模块/架构事实?没有就一句话说明;有就现在更新归属文档(`GLOSSARY` / `BUSINESS-RULES` / 架构文档)或记入 `OPEN-QUESTIONS`,而不是留给每周 doc-audit 巡检事后去追。这跟机器 action-gate 在发布时通过 `ai-nseos/state/.release-ready.json` 的 `doc` 字段追的(FB-20260720-004)是同一项义务——旧版 FB-003 的措辞只存在于 `nseos-plan-feature` 里,而轻量工作往往直接写 flow marker 就绕过本技能,所以发布时那次 ack 才是轻量路径上真正会触发的兜底。在这里就把维护做了(并记录),发布时 ack 就只是一行确认,而不是临场补课。实质性功能——跨模块、公共接口、数据模型、迁移、对外发布或高风险——一律要求完整的功能目录。
 4. 完整模式:分配/确认一个项目内唯一的功能 ID,并按 `templates/FEATURE_CONTRACT.md`、`templates/IMPLEMENTATION_PLAN.md`、`templates/FEATURE_STATE.md`、`templates/REVIEW_REPORT.md`、`templates/HANDOFF.md`、`templates/BACKLOG.md` 创建 `ai-nseos/state/features/<feature-id>/`。
 5. 不要改业务代码。

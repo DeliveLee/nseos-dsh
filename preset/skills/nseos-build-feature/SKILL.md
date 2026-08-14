@@ -18,7 +18,7 @@ description: 实现一份已批准的功能合同:有界修复循环、项目专
 - 在实现开始之前写,而不是到发布时才写来给门禁解锁。
 
 1. 读本项目的 Profile 与功能目录。只接受 `APPROVED`、`IN_PROGRESS` 或 `NEEDS_FIX`。若仓库已采纳文档体系(`docs/domain/` 存在),通过 touch `ai-nseos/state/features/<feature-id>/.gate-armed` 武装术语/歧义门禁——从此机器 doc-gate 会拦截对产品代码的编辑,直到第 3.5 步写入 `ambiguity-cleared`。**在已采纳文档体系的仓库里,每个完整模式功能都必须武装,这不是可选子步骤——现在、在任何产品代码之前就做。** 门禁只在 `.gate-armed` 存在后才执行,所以一个带着缺失 `.gate-armed` 标记就进入实现的功能,等于悄悄完全绕过了术语澄清(实况:bonohair-rebuild 9 个功能里 5 个未武装,FB-20260720-001)。如果你刻意跳过它(一个纯文档或纯配置的变更、不触及任何领域术语),在 Feature State 里显式记一行,而不是让标记仅仅缺席。**Autopilot 例外:** 若 `ai-nseos/state/features/<feature-id>/ambiguity-cleared` 已存在,说明 `nseos-autopilot` 在确认阶段已经清掉了每个领域术语——这里跳过武装、跳过第 3.5 步,并在 Feature State 里写一行,记录术语澄清已由确认阶段完成。这只是顺序上的捷径(重新武装无害且幂等,第 3.5 步只会发现没有未定义项);它绝不适用于标记缺席的情形,也不授权带着未定义术语去实现。
-2. 读 `references/QUALITY_AND_EVALUATION.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/SECURITY_POLICY.md`、`references/FAILURE_RECOVERY.md`(quality / loop / security / failure-recovery)。
+2. 读 `references/QUALITY_AND_EVALUATION.md`、`references/LOOP_AND_SCOPE_POLICY.md`、`references/SECURITY.md`、`references/FAILURE_RECOVERY.md`(quality / loop / security / failure-recovery)。
 3. 确认 branch/workspace、base、干净的归属边界,以及要保留的无关用户改动。
 3.5 **术语/歧义门禁(Spec Ambiguity Resolver)——在任何产品代码写之前清掉。** 从合同/计划里提取本功能触及的领域术语,对照 `docs/domain/GLOSSARY.md` 交叉核对(用 `subagent` 工具派 `domain-knowledge` 角色子代理)。任何**未定义、或标记为歧义 / 同名不同实体**的术语,STOP 并给出一份简短的「待确认术语」清单;不要猜含义。**按 `references/HUMAN_COMMUNICATION.md` 写这份清单——这是整条流程里术语最重、也最容易被猜着回答的请求。** 能定义领域术语的是业务人员,不是编译器:不要问「`Shipment` 在 `GLOSSARY.md` 里未定义,是否等同 `OrderFulfillment` 实体?」。问这个词在 TA 业务里是什么意思、你在哪看到的、你本会怎么假设、假设错了会怎样——然后把候选含义当成后果来呈现(「如果它指的是 A,那么一张订单拆成三次发货就会在列表里显示成三条;如果指 B,就显示成一条」)。绝不要因为技术区别对你显而易见,就不说一个术语的业务后果。由人类定义它(加一行到 `GLOSSARY.md`,或需要业务输入时记到 `docs/domain/OPEN-QUESTIONS.md`)——然后继续。当不再有未定义/歧义术语时,写标记 `ai-nseos/state/features/<feature-id>/ambiguity-cleared`。机器 doc-gate 在 `tools/pre-execute` 会 deny 对产品代码的 write/edit,直到这个标记存在——所以这道门是机械强制的,不只是建议。(还没有 `docs/domain/` 的仓库——例如未迁移到文档体系的——不在门禁范围内;它 fail-open。)
 4. 置 `IN_PROGRESS`,追加状态历史,实现下一个最小的已批准计划步骤。
@@ -33,7 +33,7 @@ description: 实现一份已批准的功能合同:有界修复循环、项目专
    | 情形 | 动作 |
    |---|---|
    | 矩阵覆盖了它 | 按其声明的默认值决定 → 追加一行 `DECISION_LOG.md`(时间、触发、所依据的矩阵条目、所做选择、触及的文件、是否可单独回滚) |
-   | 未覆盖,但按 `references/DECISION_RIGHTS.md` 的「可否预授权」列属于可预授权 | 取最近同类条目的**最保守**读法做决定 → 追加该行并标注 `类推自决` |
+   | 未覆盖,但按 `references/AUTHORITY.md` 的「可否预授权」列属于可预授权 | 取最近同类条目的**最保守**读法做决定 → 追加该行并标注 `类推自决` |
    | 未覆盖且该类别是**否**(不可预授权) | **挂起该条目**——追加一行挂起条目(撞到了什么、为什么不可预授权、影响哪些 `TEST_TARGETS.md` 条目、是否阻塞主干),然后去做不依赖它的工作。不要决定它、不要问、不要停滞。 |
    | 某个**测试实现细节**必须改(mock 接线、选择器、拆分/合并测试用例)— D5 | 自主修改 → 追加一行决策日志 |
    | 某个**测试断言的业务语义**必须改(期望值、边界条件、是否应报错)— D5 | **挂起它。** 改断言的语义就是改已批准的验收判据,这永远不可预授权,无论这个断言看起来错得多明显。 |

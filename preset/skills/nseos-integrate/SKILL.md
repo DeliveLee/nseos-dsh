@@ -17,7 +17,7 @@ description: 评估同一项目里两个及以上 READY_FOR_INTEGRATION 功能�
 - 完整校验语义见 `FLOW_MARKER_CONTRACT.md`(空文件/错 session/过期 >4h → 门禁 deny)。
 
 1. 要求所有功能都属于当前已初始化的项目,处于 `READY_FOR_INTEGRATION`,并带完整的 Handoff 与 Review Report。处于 `PENDING_LIVE_VERIFY` 的功能、或带着一条未关闭的具名 PENDING 活路径验证条目的功能,都不合格:退回去,而不是只靠测试就发布。
-2. 读 `references/PARALLEL_DEVELOPMENT.md` 与 `references/RELEASE.md`(parallel development 与 integration/release)。
+2. 读 `references/PARALLEL.md` 与 `references/RELEASE.md`(parallel development 与 integration/release)。
 3. 确定 branches/workspace、base 修订、文件/接口/schema/config/依赖的重叠与迁移归属。
 4. 用 `subagent` 工具派 `integration-reviewer` 角色子代理做合并后的只读分析。
 5. 用本项目的命令定义 merge/迁移顺序与一张合并验证矩阵。
