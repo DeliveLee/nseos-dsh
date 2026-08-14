@@ -49,10 +49,14 @@
 
 - 迁移产物落一个单独 GitHub 私有库;每次阶段完成打 tag + release;`nseos` preset + skills 通过该库分发。仓库名/地址待用户提供。
 
-## 待办(P0 剩余交付物)
+## P0 交付物(已完成)
 
-1. `PARITY_CHECKLIST.md`(18 项,每条 = 可自动化负控制)。
-2. flow-marker 接口契约(5 属性 / 4h / 归属 / 空文件 / goal_source 优先级 / session-slug 消毒)。
-3. R1/R2/R3 实测结论落盘(R1 = scope:全局 standing vs 单 preset;R2 = `tools/pre-execute` 分类能力;R3 = goals 语义覆盖 → 已定「覆盖不了,flow-marker 自建」)。
-4. §5「需论证的 Retired」8 项效果的 DSH 等价物论证(stale 三态 / 自检提醒 / 一键升级 / zip / marketplace 缓存 / wiring 检测)。
-5. vault 路径、私有库地址 = 待用户提供。
+1. `PARITY_CHECKLIST.md` — 18 项可自动化负控制判据(已写)。
+2. `FLOW_MARKER_CONTRACT.md` — flow-marker 契约 + 共享谓词 + 复杂度边界(已写)。
+3. `P0_VERIFICATION.md` — R1/R2/R3 结论 + §5 八个 Retired 效果定性(已写)。
+4. GitHub 私有库 `DeliveLee/nseos-dsh`(已建 + 推送)。
+
+## 待用户提供(不阻塞 P1)
+
+- Obsidian vault 绝对路径(进到 `nseos-knowledge` 阶段用)。
+- 私有库地址 = `https://github.com/DeliveLee/nseos-dsh`(已建,如需改名告诉我)。
