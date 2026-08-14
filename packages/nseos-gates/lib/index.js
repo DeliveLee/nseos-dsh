@@ -118,6 +118,25 @@ export function apply(ctx) {
     }
   }
 
+  // ── session-start injection ─────────────────────────────────────────────
+  // Seed the session id once so the model can write a correctly-attributed
+  // flow marker (the gates match on exec.agent.id). Fail-open: no id, no marker.
+  ctx.on("agent/session-start", (payload) => {
+    try {
+      const agent = payload && payload.agent;
+      if (!agent || typeof agent.inject !== "function" || typeof agent.id !== "string") return;
+      agent.inject({
+        content: [{
+          type: "text",
+          text: "[nseos SESSION_ID] = " + agent.id + "\nWhen writing the flow marker, set session_id to exactly this value (never guess it, never leave a placeholder).",
+        }],
+        source: { kind: "user" },
+      });
+    } catch (e) {
+      // fail-open
+    }
+  });
+
   // ── skill-gate ──────────────────────────────────────────────────────────
   // A non-nseos skill (the `skill` tool) in a business repo, outside an active
   // flow, is denied: nseos is the outer operating model.
