@@ -2,7 +2,7 @@
 
 ## Default stance
 
-最小权限、默认拒绝、工作区隔离、凭证不进入上下文、所有高风险写操作需要明确批准。Prompt 指令不能替代操作系统沙箱、Claude Code 权限、仓库保护和 CI 控制。
+最小权限、默认拒绝、工作区隔离、凭证不进入上下文、所有高风险写操作需要明确批准。Prompt 指令不能替代操作系统沙箱、DSH 权限、仓库保护和 CI 控制。
 
 ## Forbidden without explicit approval
 
