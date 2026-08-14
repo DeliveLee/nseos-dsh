@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -88,9 +88,80 @@ test("prod-schema patterns catch auto-migrate, not plain migrate scripts", () =>
   assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test("npm run migrate")), false);
 });
 
-test("done-claim patterns match claims, not ordinary closes", () => {
-  assert.strictEqual(DONE_CLAIM_PATTERNS.some((re) => re.test("没有可自主推进的活了")), true);
-  assert.strictEqual(DONE_CLAIM_PATTERNS.some((re) => re.test("都做完了")), true);
-  assert.strictEqual(DONE_CLAIM_PATTERNS.some((re) => re.test("no work remains")), true);
-  assert.strictEqual(DONE_CLAIM_PATTERNS.some((re) => re.test("S6-E2 已完成")), false);
+test("isDoneClaim matches completion declarations, including batch/item", () => {
+  for (const s of [
+    "没有可自主推进的活了", "都做完了", "全部搞定", "这一棒做完了", "这批收口了",
+    // The canonical batch-drift the gate exists to catch (FB-20260805-001):
+    "本批次完成", "本批完成", "这批完成",
+    // The project's own anti-drift wording:
+    "没有可推进的活", "没活可推进", "没活了", "没有待办了", "没有 pending 了",
+    "S6 全部收口", "做完了", "结束了", "收工", "没有剩余的活了",
+    // Per-item completion also triggers the "report remaining N" steer:
+    "S6-E2 已完成", "第 3 步做完了",
+    "no work remains", "nothing left to do", "all done", "all finished",
+  ]) {
+    assert.strictEqual(isDoneClaim(s), true, "should be a claim: " + s);
+  }
+});
+
+test("isDoneClaim rejects questions, negation, quota, and partial progress", () => {
+  for (const s of [
+    // questions — never a claim (the steer says "你宣称做完了")
+    "结束了吗", "都完成了吗", "本轮做完了吗", "做完了吗?",
+    // negation — reports of INCOMPLETE work are the opposite of a claim
+    "还剩 2 步未完成", "还没做完", "未完成", "仍未完成", "尚未收口", "没做完",
+    // quota/space wording — not a completion claim
+    "没有剩余空间了", "没有剩余时间", "无剩余名额",
+    // partial — "做了" without "完" is not a completion
+    "已经做了一部分", "都做了 A 和 B",
+  ]) {
+    assert.strictEqual(isDoneClaim(s), false, "should NOT be a claim: " + s);
+  }
+});
+
+test("enteredFlow treats active and stale as entered, absent/unattributable as not", () => {
+  assert.strictEqual(enteredFlow("active"), true);
+  assert.strictEqual(enteredFlow("stale"), true);
+  assert.strictEqual(enteredFlow("absent"), false);
+  assert.strictEqual(enteredFlow("unattributable"), false);
+});
+
+test("isProductCodePath draws the doc/config line shared by doc-gate and ledger-gate", () => {
+  assert.strictEqual(isProductCodePath("src/index.ts"), true);
+  assert.strictEqual(isProductCodePath("src/Component.tsx"), true);
+  assert.strictEqual(isProductCodePath("README.md"), false);
+  assert.strictEqual(isProductCodePath("package.json"), false);
+  assert.strictEqual(isProductCodePath("config.yaml"), false);
+  assert.strictEqual(isProductCodePath("ai-nseos/PROJECT_PROFILE.md"), false);
+  // Extensionless config/boilerplate is NOT product code (3 of these must not
+  // trip the 3-file ledger-gate).
+  assert.strictEqual(isProductCodePath("Dockerfile"), false);
+  assert.strictEqual(isProductCodePath("Dockerfile.dev"), false);
+  assert.strictEqual(isProductCodePath("Jenkinsfile"), false);
+  assert.strictEqual(isProductCodePath("Makefile"), false);
+  assert.strictEqual(isProductCodePath(".env"), false);
+  assert.strictEqual(isProductCodePath(".env.local"), false);
+  assert.strictEqual(isProductCodePath(".gitignore"), false);
+  // Any dotfile (even with a code-looking extension) is config, not product.
+  assert.strictEqual(isProductCodePath(".eslintrc.js"), false);
+  assert.strictEqual(isProductCodePath(".foo"), false);
+  assert.strictEqual(isProductCodePath("LICENSE"), false);
+  assert.strictEqual(isProductCodePath(undefined), false);
+});
+
+test("isBookkeepingPath excludes ack/marker files so clearing a gate is never deadlocked", () => {
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/.impl-boundary-ack"), true);
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/features/f1/.gate-armed"), true);
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/features/f1/ambiguity-cleared"), true);
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/flow/sess.json"), true);
+  // Deadlock-prevention: an ack/marker that would otherwise count as "product
+  // code" must still be writable. `.impl-boundary-ack` is excluded twice
+  // (dotfile + ai-nseos/); `ambiguity-cleared` (no extension, no leading dot)
+  // is excluded only by the ai-nseos/ rule — both must not trap the model.
+  assert.strictEqual(isProductCodePath("ai-nseos/state/.impl-boundary-ack"), false); // dotfile
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/.impl-boundary-ack"), true);
+  assert.strictEqual(isProductCodePath("ai-nseos/state/features/f1/ambiguity-cleared"), true); // no ext, no dot
+  assert.strictEqual(isBookkeepingPath("ai-nseos/state/features/f1/ambiguity-cleared"), true);
+  assert.strictEqual(isBookkeepingPath("src/index.ts"), false);
+  assert.strictEqual(isBookkeepingPath(undefined), false);
 });

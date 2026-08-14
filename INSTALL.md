@@ -48,5 +48,29 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 本仓是「源 + 分发」一体:
 - 内容(技能/引用/模板/preset 组合)更新 = 改 `preset/` → `git commit` → 重跑第 2 步 `cp -R`。
-- 门禁代码更新 = 改 `packages/nseos-gates/` → `git commit`(软链指向源码,无需重装)。
+- 门禁代码更新 = 改 `packages/nseos-gates/` → `git commit` + 重跑第 1 步 `cp -R`(拷贝不自动同步)。
 - 每次完成打 tag + release(私有库 `DeliveLee/nseos-dsh`)。
+
+## 5. Changelog
+
+### v0.3.0 — 2026-08-14 长对话漂移防护 + 对抗评审修复
+
+**门禁(`@deliveli/nseos-gates`)**:
+- 修 `doc-gate` 实现边界提醒的极性 bug:改用 `enteredFlow`(active **或** stale),4h 窗口过期后不再静默失效(`FB-20260805-003`)。
+- `done-claim` 从窄词表改成语义式 + `isDoneClaim` 守卫:抓「本批次完成 / 没活可推进」等漂移说法,排除问句(「都完成了吗」)、否定(「还没做完 / 还剩 2 步未完成」)、配额词(「没有剩余空间」)。
+- 新增 `ledger-gate`(账本一问):第 3 个不同产品文件 + 解析不到账本 → deny 一次让模型问人类(`FB-20260805-002`),`NONE` 归一化 + 明令「模型不得自填」。
+- fail-open 全程可观测:`gateWarn` + `hasEntry`/`isBusinessRepo` 改三态;release 类仓库检测失败改 fail-loud deny(`MIGRATION_PLAN §0.2 #3/#6`)。
+- 修 ack 死锁:清门禁的 `.impl-boundary-ack`/`.gate-armed`/`ambiguity-cleared` 此前会被 doc-gate 自己拦截,新增 `isBookkeepingPath` 放行。
+- 修扩展名盲区:`Dockerfile`/`.env`/dotfile 等不再误判为产品码(不误触发账本一问)。
+
+**引用/模板**:
+- `STATE_MODEL` 新增「人类已确立的事实是锚,不是待验证项」;`FAILURE_RECOVERY` 新增「先杀整类,别在类内换假设」;`VERIFICATION` 新增「某件事悄悄不成立时,有检查会红吗」+「负控制必须在真实环境做」;`TASK_LEDGER` 诚实化(门看不出「账本被读过」)。
+- `MIGRATION_PLAN §4` 声明 `ledgerState` 为进程内瞬时计数(非状态机/非持久化)。
+
+**技能**:
+- `nseos-maintain`:修 6 个幽灵文件引用(Claude 布局残留)+ 新增「挂载版本判据」(diff 哨兵文件);`nseos-doc-audit` 去 `.claude` 残留;`nseos-route-work` 补充账本一问的 `bash` 计数盲点说明。
+
+**分发**:
+- 新建 `feedback/INBOX.md` + `PROCESSED.md`(5 条 design-level backlog:自铸逃生口 / 子代理裁决丢失 / 0-deny 负控制 / 指标博弈 / prompt-routing 重注入)。
+
+> 三份独立对抗评审(代码正确性 / 假绿 / 约束)抓出并修掉:否定失明、问句误判、ack 死锁、自铸逃生口、静默降级、扩展名盲区、NONE 大小写、幽灵计数、marker 静默 fail-closed。

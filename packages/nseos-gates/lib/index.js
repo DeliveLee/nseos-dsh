@@ -1,12 +1,29 @@
 // @deliveli/nseos-gates — AI-NSEOS delivery-governance gates for DSH.
-// All gates are fail-open: any error degrades to allow (or no-op), never to a
-// swallowed deny. The pure predicate lives in core.js (unit-tested); this file
-// only wires fs + events.
+// Fail-open is per-decision, not blanket: the advisory gates (skill/doc/
+// ledger/progress) fail OPEN on error, the release prod-schema scan fails LOUD
+// (an unknown scan result denies — never reads "couldn't see" as "clean"), and
+// a marker read that fails CLOSED for skill-gate means stale/absent still
+// denies. Every fail-open degradation emits gateWarn so it is observable, never
+// silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
+
+// Fail-open alert (MIGRATION_PLAN §0.2 #3 / PARITY_CHECKLIST #15): a gate that
+// degrades to allow must be observable, never silent. console.warn lands in the
+// DSH process log; wrapped defensively so the alerter itself can never throw.
+function gateWarn(where, err) {
+  try {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      const msg = err && err.message ? err.message : String(err);
+      console.warn("[nseos-gates] fail-open @" + where + ": " + msg);
+    }
+  } catch (e) {
+    /* never throw from the alerter */
+  }
+}
 
 // Read-only reviewer: no file writes, no shell, no recursive delegation. The
 // role persona arrives in the prompt; this provider only enforces the boundary.
@@ -66,34 +83,53 @@ export function apply(ctx) {
     }
   }
 
+  // Tri-state: true = entry exists; false = entry does not exist; undefined =
+  // could not determine (fs error). Distinct from "not found" so callers can
+  // fail-loud when evidence is missing (MIGRATION_PLAN §0.2 #3/#6), instead of
+  // silently conflating "couldn't see" with "clean".
   async function hasEntry(cwd, rel) {
     try {
       const t = await fs.resolve(rel, cwd ? { cwd } : undefined);
       const info = await fs.stat(t);
       return info !== undefined;
     } catch (e) {
-      return false;
+      gateWarn("hasEntry:" + rel, e);
+      return undefined;
     }
   }
 
+  // Tri-state: true = business repo (.git, not preset source); false =
+  // definitively not a business repo; undefined = could not determine.
   async function isBusinessRepo(cwd) {
     if (!cwd) return false;
     try {
       const git = await hasEntry(cwd, ".git");
+      if (git === undefined) return undefined;
       if (!git) return false;
       const isPresetSource = await hasEntry(cwd, "preset/preset.yml");
+      if (isPresetSource === undefined) return undefined;
       return !isPresetSource;
     } catch (e) {
-      return false;
+      gateWarn("isBusinessRepo", e);
+      return undefined;
     }
   }
 
   async function markerStatus(sessionId, cwd) {
     try {
-      const target = await fs.resolve(FLOW_DIR + "/" + slug(sessionId) + ".json", cwd ? { cwd } : undefined);
+      const rel = FLOW_DIR + "/" + slug(sessionId) + ".json";
+      const exists = await hasEntry(cwd, rel);
+      if (exists === undefined) {
+        // stat error: hasEntry already emitted gateWarn, so this is observable;
+        // "absent" is still the fail-open answer the callers need.
+        return { status: "absent", reason: "marker stat error" };
+      }
+      if (!exists) return { status: "absent", reason: "no marker file" };
+      const target = await fs.resolve(rel, cwd ? { cwd } : undefined);
       const text = await safeRead(target);
       return evaluateMarker(text, sessionId);
     } catch (e) {
+      gateWarn("markerStatus", e);
       return { status: "absent", reason: "marker path unresolvable" };
     }
   }
@@ -104,6 +140,20 @@ export function apply(ctx) {
       const sessionId = sessionIdOf(exec);
       if (!cwd || !sessionId) return false;
       return (await markerStatus(sessionId, cwd)).status === "active";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // "Entered a flow at some point" — active OR stale. Used by the doc-gate
+  // implementation-boundary reminder so it does not go silent after the 4h
+  // window (see enteredFlow in core.js / FB-20260805-003).
+  async function flowEntered(exec) {
+    try {
+      const cwd = cwdOf(exec);
+      const sessionId = sessionIdOf(exec);
+      if (!cwd || !sessionId) return false;
+      return enteredFlow((await markerStatus(sessionId, cwd)).status);
     } catch (e) {
       return false;
     }
@@ -230,6 +280,66 @@ export function apply(ctx) {
     }
   }
 
+  // ── ledger-gate state + resolution ──────────────────────────────────────
+  // Per-session in-memory state: distinct product-code files touched, and a
+  // one-shot "nudged" latch (this is advisory, so it means "we prompted once",
+  // NOT "the human answered"). A process restart merely re-prompts once.
+  // Entries are evicted on agent/disposed so the Map stays bounded.
+  const ledgerState = new Map(); // sessionId -> { files: Set<string>, nudged: boolean }
+
+  // Resolve the task's countable ledger to a path, the literal "NONE" (human
+  // declined), or undefined (no ledger and no answer yet). Order: marker
+  // goal_source → PROJECT_PROFILE "Progress source:" → default candidates.
+  async function ledgerSource(cwd, sessionId) {
+    try {
+      const markerTarget = await fs.resolve(FLOW_DIR + "/" + slug(sessionId) + ".json", cwd ? { cwd } : undefined);
+      const markerText = await safeRead(markerTarget);
+      if (markerText !== undefined) {
+        const m = JSON.parse(markerText);
+        const gs = m && m.goal_source;
+        if (typeof gs === "string" && gs.trim().toUpperCase() === "NONE") return "NONE";
+        const list = Array.isArray(gs) ? gs : typeof gs === "string" && gs.trim() !== "" ? [gs] : [];
+        if (list.length > 0 && list.every((p) => typeof p === "string" && p.trim().toUpperCase() === "NONE")) return "NONE";
+        for (const p of list) {
+          if (typeof p !== "string") continue;
+          if (p.trim().toUpperCase() === "NONE") continue;
+          if (await hasEntry(cwd, p)) return p;
+        }
+      }
+    } catch (e) {
+      /* unparseable marker → fall through to next source */
+    }
+    try {
+      const profTarget = await fs.resolve("ai-nseos/PROJECT_PROFILE.md", cwd ? { cwd } : undefined);
+      const prof = await safeRead(profTarget);
+      if (prof !== undefined) {
+        const m = prof.match(/^\s*Progress source\s*:\s*(\S+)/m);
+        if (m && m[1]) {
+          const v = m[1].trim();
+          if (/^(?:NONE|不需要|不建|无)/i.test(v)) return "NONE";
+          if (await hasEntry(cwd, v)) return v;
+        }
+      }
+    } catch (e) {
+      /* fall through to default candidates */
+    }
+    for (const p of ["STATUS.md", "PROGRESS.md", "ai-nseos/state/progress.json"]) {
+      if (await hasEntry(cwd, p)) return p;
+    }
+    return undefined;
+  }
+
+  // Evict per-session ledger state when the agent leaves, so the Map stays
+  // bounded over the process lifetime (fail-open best-effort cleanup).
+  ctx.on("agent/disposed", (payload) => {
+    try {
+      const id = payload && payload.agent && payload.agent.id;
+      if (id) ledgerState.delete(id);
+    } catch (e) {
+      /* best-effort */
+    }
+  });
+
   // ── session-start injection ─────────────────────────────────────────────
   // Seed session id (needed for marker attribution) + the repo's delivery mode
   // once. Static routing lives in the persona (assembled every step); this is
@@ -261,6 +371,7 @@ export function apply(ctx) {
         source: { kind: "user" },
       });
     } catch (e) {
+      gateWarn("session-start injection", e);
       // fail-open
     }
   });
@@ -272,7 +383,7 @@ export function apply(ctx) {
       const skillName = exec.arguments && exec.arguments.name;
       if (!skillName || isNseosSkill(skillName)) return next();
       const cwd = cwdOf(exec);
-      if (!(await isBusinessRepo(cwd))) return next();
+      if ((await isBusinessRepo(cwd)) !== true) return next();
       if (await flowActive(exec)) return next();
       return {
         kind: "deny",
@@ -280,6 +391,7 @@ export function apply(ctx) {
           "在业务仓库且未进入 nseos 流程时,不能顶层调用非 nseos 技能 `" + skillName + "`。先走 nseos-route-work 分类并进入流程(写 flow marker),该技能作为步骤内工具再调用。",
       };
     } catch (e) {
+      gateWarn("skill-gate", e);
       return next();
     }
   });
@@ -295,7 +407,16 @@ export function apply(ctx) {
       const cmd = exec.arguments && exec.arguments.command;
       if (typeof cmd !== "string" || !RELEASE_PATTERNS.some((re) => re.test(cmd))) return next();
       const cwd = cwdOf(exec);
-      if (!(await isBusinessRepo(cwd))) return next();
+      const repo = await isBusinessRepo(cwd);
+      if (repo === false) return next(); // definitively not a business repo
+      if (repo !== true) {
+        // fail-loud: a release-class command must not silently pass when the
+        // repo type is undeterminable (MIGRATION_PLAN §0.2 #6).
+        return {
+          kind: "deny",
+          reason: "release 类命令:无法确认当前目录是否为业务仓库(仓库检测出错),按 fail-loud 处理不静默放行——请确认工作目录与 .git 状态后重试。",
+        };
+      }
       const initd = await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md");
       const active = await flowActive(exec);
       const scan = await prodSchemaScan(cwd);
@@ -309,6 +430,49 @@ export function apply(ctx) {
         reason: "release 类命令(如 git push / gh pr merge)需本会话在 nseos 流程内且无 ORM 自动迁移风险。当前缺:\n- " + gaps.join("\n- "),
       };
     } catch (e) {
+      gateWarn("action-gate", e);
+      return next();
+    }
+  });
+
+  // ── ledger-gate (账本一问) ──────────────────────────────────────────────
+  // Faithful port of FB-20260805-002: after the 3rd distinct product-code file
+  // in a business repo with no resolvable ledger and no prior answer, deny once
+  // so the model asks the human whether to create one. Registered BEFORE
+  // doc-gate so it counts every product-code write (doc-gate's first-write
+  // reminder would otherwise eat write #1). Advisory: the deny asks the model
+  // to ask the human — it is not a security boundary.
+  ctx.on("tools/pre-execute", async (exec, next) => {
+    try {
+      if (exec.name !== "write" && exec.name !== "edit") return next();
+      const fp = exec.arguments && exec.arguments.file_path;
+      if (!isProductCodePath(fp)) return next();
+      if (isBookkeepingPath(fp)) return next(); // bookkeeping: markers, acks, state
+      const cwd = cwdOf(exec);
+      if ((await isBusinessRepo(cwd)) !== true) return next();
+      const sessionId = sessionIdOf(exec);
+      if (!sessionId) return next();
+      let rec = ledgerState.get(sessionId);
+      if (!rec) {
+        rec = { files: new Set(), nudged: false };
+        ledgerState.set(sessionId, rec);
+      }
+      if (rec.nudged) return next();
+      rec.files.add(fp);
+      if (rec.files.size < 3) return next();
+      const ledger = await ledgerSource(cwd, sessionId);
+      if (ledger !== undefined) {
+        rec.nudged = true; // has a ledger, or human already declined ("NONE")
+        return next();
+      }
+      rec.nudged = true; // one-shot: prompt once, then let it go (advisory)
+      return {
+        kind: "deny",
+        reason:
+          "账本一问:本会话已尝试写 " + rec.files.size + " 个不同产品文件,但解析不到可数账本(flow marker 的 goal_source / PROJECT_PROFILE 的 Progress source / STATUS.md·PROGRESS.md·progress.json 都没有)。请先问人类要不要为这个任务建一份账本(TASK_LEDGER):他说要 → 建好后继续;他说不要 → 在流程标记里写 \"goal_source\":\"NONE\"。注意:\"NONE\" 只有人类明确说不要才能写,模型不得自己填(自填等于自铸逃生口,FB-20260805-002);写之前先告诉他代价——此后没有机器能替他核对「做完了」。",
+      };
+    } catch (e) {
+      gateWarn("ledger-gate", e);
       return next();
     }
   });
@@ -318,9 +482,10 @@ export function apply(ctx) {
     try {
       if (exec.name !== "write" && exec.name !== "edit") return next();
       const fp = exec.arguments && exec.arguments.file_path;
-      if (typeof fp !== "string" || /\.(md|json|ya?ml|toml|lock)$/i.test(fp)) return next();
+      if (!isProductCodePath(fp)) return next();
+      if (isBookkeepingPath(fp)) return next(); // bookkeeping: markers, acks, ambiguity-cleared
       const cwd = cwdOf(exec);
-      if (!(await isBusinessRepo(cwd))) return next();
+      if ((await isBusinessRepo(cwd)) !== true) return next();
       // Branch 1 — hard gate: domain-term ambiguity unresolved.
       const armed = await glossaryArmedNotCleared(cwd);
       if (armed !== undefined) {
@@ -330,8 +495,10 @@ export function apply(ctx) {
             "术语歧义门:feature `" + armed + "` 已武装(.gate-armed)但未清歧义(缺 ambiguity-cleared)。先在 docs/domain/GLOSSARY.md 定义本 feature 触及的每个领域术语并写 ambiguity-cleared,再写产品代码。",
         };
       }
-      // Branch 2 — advisory reminder: implementation boundary.
-      if (!(await flowActive(exec))) return next();
+      // Branch 2 — advisory reminder: implementation boundary. Uses flowEntered
+      // (active OR stale), not flowActive, so a long session's expired marker
+      // does not silently drop this reminder (FB-20260805-003).
+      if (!(await flowEntered(exec))) return next();
       if (await hasEntry(cwd, "ai-nseos/state/.impl-boundary-ack")) return next();
       return {
         kind: "deny",
@@ -339,6 +506,7 @@ export function apply(ctx) {
           "实现边界提醒:产品代码应交给 feature-worker 子代理(TDD)实现,编排会话只做评审/验证/发布。若确需编排会话直接写,先写一行 ack 到 ai-nseos/state/.impl-boundary-ack(谁在写 + 为什么)。",
       };
     } catch (e) {
+      gateWarn("doc-gate", e);
       return next();
     }
   });
@@ -348,6 +516,10 @@ export function apply(ctx) {
     try {
       const agent = payload && payload.agent;
       if (!agent || typeof agent.steer !== "function") return;
+      // Scope: only in business repos. Preset-source repo, read-only Q&A and
+      // personal todos are out of scope (route-work's "不适用/源仓库豁免").
+      const cwd = agent.session && agent.session.header ? agent.session.header.cwd : undefined;
+      if (!(await isBusinessRepo(cwd))) return;
       const sessionQuery = ctx.get("sessionQuery");
       if (sessionQuery === undefined) return;
       const events = await sessionQuery.listEvents(agent.id);
@@ -359,7 +531,7 @@ export function apply(ctx) {
         }
       }
       if (assistantTexts.length === 0) return;
-      if (!DONE_CLAIM_PATTERNS.some((re) => re.test(assistantTexts[assistantTexts.length - 1]))) return;
+      if (!isDoneClaim(assistantTexts[assistantTexts.length - 1])) return;
       agent.steer({
         content: [{
           type: "text",
@@ -368,6 +540,7 @@ export function apply(ctx) {
         source: { kind: "user" },
       });
     } catch (e) {
+      gateWarn("progress-gate", e);
       // fail-open
     }
   });

@@ -11,7 +11,7 @@ description: 在业务仓库审计 AI 文档健康,两种模式:漂移(近期代
 - **整体体检模式(holistic / 体检)**——回答「攒了这么多域文档,整体还健康吗」。不依赖代码改动,通读全部文档找**跨域矛盾 / 重复 / 孤儿 / 陈旧 / 剪枝候选 / 结构问题**。适合低频(月度或域数量明显增长时)。走下面「整体体检模式」节。
 - 调用:`$ARGUMENTS` 含「体检 / holistic / full」→ 走体检模式;否则默认漂移模式。
 
-它改编自一份线上 drift-audit skill,但**适配 nseos 的知识分层**:`AGENTS.md`(薄索引)/ `docs/domain/*`(业务语言与规则)/ `docs/architecture{,/<module>}.md`(模块地图)/ `.claude/rules/*`(路径绑定规矩)/ `.claude/skills/*`(开发 SOP)/ `ai-nseos/PROJECT_PROFILE.md`(治理详情)。
+它改编自一份线上 drift-audit skill,但**适配 nseos 的知识分层**:`AGENTS.md`(薄索引 + Always/Ask/Never 与路径绑定规矩)/ `docs/domain/*`(业务语言与规则)/ `docs/architecture{,/<module>}.md`(模块地图)/ `ai-nseos/PROJECT_PROFILE.md`(治理详情)。开发 SOP 不在业务仓库内,在 nseos preset 的 `skills/`(插件自带,不是被审计对象)。**DSH 版无 `.claude/` 目录**:原版的 `.claude/rules/*` 由 `AGENTS.md` 承担,`.claude/skills/*` 由 preset skills 承担。
 
 先读 `references/KNOWLEDGE.md`,那里是这套分层的治理原则;本 skill 只是它的手动执行流程。两种模式都遵守文末「约束(硬)」。
 
@@ -48,9 +48,9 @@ git log --since="<上次审计日期或约定窗口>" --stat -- '<按仓库语�
 - 跨域词义、同词多义、新增域 → `docs/domain/CONTEXT-MAP.md`
 - 状态机 / 业务流程 → `docs/domain/WORKFLOWS.md`
 - 模块新增 / 改责 / 入口 / 数据流 → `docs/architecture.md` 及对应 `docs/architecture/<module>.md`
-- 某模块特有的坑 / 约束 → 该模块的 architecture 子文件或对应 `.claude/rules/*`
-- 路径绑定约定 → 匹配的 `.claude/rules/*`(代码移了位置,**同时改 `paths:` glob**,让规则继续命中)
-- 开发 SOP 步骤 → 对应 `.claude/skills/*`
+- 某模块特有的坑 / 约束 → 该模块的 architecture 子文件或 `AGENTS.md` 的 Always/Ask/Never
+- 路径绑定约定 → `AGENTS.md` 对应条目(代码移了位置,**同步改它指到的路径**,让规则继续命中)
+- 开发 SOP 步骤 → nseos preset 对应 skill(在 preset 源仓库改,不在业务仓库)
 - 仅当是跨全项目的硬规矩 → `AGENTS.md` 的 Hard Rules 或 Always / Ask First / Never
 - 命令 → `AGENTS.md` 的命令段
 
@@ -61,7 +61,7 @@ git log --since="<上次审计日期或约定窗口>" --stat -- '<按仓库语�
 - `AGENTS.md` 保持**薄索引**(< 150 行):细节下沉到 docs/ 与 rules/,这里只留指针。别把规则正文搬进来。
 - `docs/architecture.md` 保持**索引**:单个模块的细节进 `docs/architecture/<module>.md` 子文件。
 - `GLOSSARY` 保持「按 bounded context 分块 + 5 列表格 + 行为铁律」的结构,别把它改成大段散文。
-- `.claude/skills/*` **只引用知识、不复制知识**。若某 skill 抄了一份现在已变的规则,改的是 docs/ 里的真源,然后让 skill 指过去,而不是就地改 skill 里的副本。
+- nseos preset 的 skills **只引用知识、不复制知识**。若某 skill 抄了一份现在已变的规则,改的是 docs/ 里的真源,然后让 skill 指过去,而不是就地改 skill 里的副本。
 - 文档 / 模块文件的增删移动,要同步更新 `AGENTS.md` 里的文档地图与 `docs/architecture.md` 里的模块地图,并**验证所有链接可达**。
 
 ## Step 5.5 — 矛盾检测
@@ -120,4 +120,4 @@ git log --since="<上次审计日期或约定窗口>" --stat -- '<按仓库语�
 - **只改 `*.md`,绝不碰代码。**
 - **只开 PR,绝不自动合并,绝不直接 commit/push 到主干**(`main` / `master`)。PR 的 target 遵循 Step 1 解析出的集成分支;**当且仅当**该仓 `ai-nseos/PROJECT_PROFILE.md` 或 `AGENTS.md` 含显式声明行 `Doc-audit PR target: main`(单干模型:main 即集成分支)时,PR 才允许 target `main`/`master`——PR 本身就是人类合并门禁,这条防的是无声改主干,不是防「经人审的 PR 进 main」。无声明又无其它集成分支 → 跳过并报告,不猜。
 - 若已有一个开着的 PR 覆盖了同一处改动,**不重复开**。
-- **不要因为 `.claude/` 被 gitignore、云端 checkout 看不到就删掉对 `.claude/rules/*` 或 `.claude/skills/*` 的引用**——它们很可能是本地真实存在的文件。保留引用,并在 PR body 里标注「待人确认」。
+- **不要因为某个路径(如历史遗留的 `.claude/`)被 gitignore、云端 checkout 看不到就删掉对它的引用**——它很可能是本地真实存在的文件。保留引用,并在 PR body 里标注「待人确认」。

@@ -14,13 +14,47 @@ export const RELEASE_PATTERNS = [
   /\bgit\s+tag\b/,
 ];
 
-// Closing text that claims global completion.
+// Closing text that declares completion — deliberately BROAD. The progress-gate
+// is an advisory "report a number" steer: a false positive costs one extra
+// nudge while a false negative is the drift itself (FB-20260805-001/004 — "坏
+// 说法的尾巴没有尽头"). So batch/item completion ("本批次完成", "第3步做完了")
+// is caught as eagerly as global completion — treating a batch as the whole
+// goal is exactly the failure this exists to catch. The only shapes excluded
+// are questions (a speech-act error, handled by isDoneClaim) and quota/space
+// wording ("没有剩余空间"), which are not completion claims.
 export const DONE_CLAIM_PATTERNS = [
-  /(?:没有|无)(?:可自主推进|剩余|要做的)(?:的)?(?:活|工作|任务)/,
-  /(?:都|全部|已经)(?:做|完成)完了/,
-  /no work remains/i,
-  /\b(?:all done|everything is done)\b/i,
+  // no-work-remains, completion words, noun optional
+  /(?:没有|无|没了|不再有|没)\s*(?:可自主推进|可推进|待办|未完成|未了|要做的|pending)(?:的)?(?:活|工作|任务|事项|事情)?/i,
+  // "没/无活 + 可推进/可做/可干/了" — the project's own anti-drift wording
+  /(?:没|无)活(?:可推进|可做|可干|了)?/,
+  // 剩余 requires a completion noun so quota words (剩余空间/名额/时间) don't fire
+  /(?:没有|无|没了)\s*剩余(?:的)?(?:活|工作|任务|事项|事情)/,
+  // global/batch subject + completion verb (the subject carries the "global" sense)
+  /(?:全部|所有|都|整体|已经|至此|这一棒|这批|本批|本批次|本阶段|本轮)(?:完成|做完|搞定|收口|收尾|收官|结束|收工|完工)/,
+  // bare completion-sense verb, optional 了/完/好 suffix
+  /(?:完成|结束|收工|完工|搞定|收口|收尾|收官)(?:了|完|好|定)?/,
+  // "做/改/写/修/整 + 完" — 做完了 (claim) vs 做了 (partial)
+  /(?:做|改|写|修|整)完/,
+  // English
+  /\b(?:all done|all finished|everything(?:'s| is) done|all tasks? (?:complete|done)|no (?:work|tasks?|items?|pending) (?:remains?|left)|nothing left to do)\b/i,
 ];
+
+// Reports of INCOMPLETE work must never be labeled a completion claim.
+// "未完成" / "没做完" / "还没做完" / "尚未收口" / "还剩 2 步未完成" are the
+// opposite of "做完了"; firing the steer on them is a speech-act error, worse
+// than a false negative. Known tradeoff: a double negation like "没有未完成的
+// 事项了" is a completion claim but is skipped here — rare phrasing, and the
+// cost is one missed nudge, not a wrong accusation.
+const NEGATED_COMPLETION = /(?:未|没|不|还没|尚未|仍未|还未)(?:做|完成|做完|搞定|收口|收尾|收官|结束|收工|完工)/;
+
+// A completion DECLARATION, not a question and not a report of incomplete work.
+export function isDoneClaim(text) {
+  if (typeof text !== "string" || text.trim() === "") return false;
+  const t = text.trim();
+  if (/[吗？?]\s*$/.test(t)) return false; // a question is not a claim
+  if (NEGATED_COMPLETION.test(t)) return false; // incomplete, not done
+  return DONE_CLAIM_PATTERNS.some((re) => re.test(t));
+}
 
 export function slug(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
@@ -28,6 +62,40 @@ export function slug(id) {
 
 export function isNseosSkill(name) {
   return typeof name === "string" && name.startsWith(NSEOS_PREFIX);
+}
+
+// Whether a marker status means "this session has entered a flow". Both
+// "active" AND "stale" count: a stale marker is a long-running session whose 4h
+// window expired — exactly when the implementation-boundary reminder must NOT
+// go silent (FB-20260805-003). Only "absent"/"unattributable" mean "never
+// entered". This keeps the reminder's polarity consistent with skill/action
+// gates (which fail closed on stale).
+export function enteredFlow(status) {
+  return status === "active" || status === "stale";
+}
+
+// A path counts as "product code" for the doc-gate and ledger-gate when it is
+// NOT a doc/config file. One shared predicate so both gates draw the same line
+// instead of drifting apart. Extensionless boilerplate/config (Dockerfile,
+// Makefile, .env, .gitignore, LICENSE, …) is explicitly NOT product code so a
+// session touching three of those does not trip the 3-file ledger-gate.
+const NON_PRODUCT_BASENAME = /^(?:Dockerfile(?:[.\-].*)?|Jenkinsfile|Makefile|Procfile|LICENSE|LICENCE|NOTICE|CHANGELOG|README|\..*)$/i;
+
+export function isProductCodePath(fp) {
+  if (typeof fp !== "string") return false;
+  if (/\.(md|json|ya?ml|toml|lock)$/i.test(fp)) return false;
+  const base = fp.split("/").pop() || "";
+  if (NON_PRODUCT_BASENAME.test(base)) return false;
+  return true;
+}
+
+// Bookkeeping under ai-nseos/ (flow markers, .impl-boundary-ack, .gate-armed,
+// ambiguity-cleared, state files) is never "product code" for the gates. Writing
+// these must NOT be denied, otherwise the ack/marker files that CLEAR a gate
+// could themselves never be written (a deadlock: "write an ack to proceed",
+// and writing the ack is denied).
+export function isBookkeepingPath(fp) {
+  return typeof fp === "string" && /^ai-nseos\//.test(fp);
 }
 
 // The single shared marker predicate. Pure: takes the raw marker text, the

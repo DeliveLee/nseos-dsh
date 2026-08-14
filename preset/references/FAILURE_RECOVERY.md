@@ -18,6 +18,12 @@
 - A retry must record the error and reason another attempt may succeed.
 - Repeating an unchanged deterministic failure is not recovery.
 
+## Root-cause discipline: kill the whole class, not one hypothesis at a time
+
+实测一个排障会话在约 1.5 小时内连错三次：Obsidian 锁 → 原地升级身份破坏 → iTerm 缺权限 → 最终是 360 安全卫士的端点防护。三次都从「一个听起来合理的假设」出发，在同一个假设类里换下一个成员，而那条硬事实（完全磁盘权限确实生效）本应在两轮前就杀掉整个「缺权限」类。
+
+规则：当一条**已确立的事实**和**一整类假设**矛盾时，先杀整类，别在类内换假设。判断标准是「我是在换一个更细的假设，还是在换一个不同性质的原因」——前者再试两次就该回头质疑那个被当作前提的「已确立事实」是否真的成立（`references/STATE_MODEL.md` 的「人类已确立的事实是锚」）。这条与 `Retry policy` 叠加：换假设不是重试，但「连换三次同类假设」和「重复一条不变命令」一样，都不是恢复。
+
 ## Checkpoints
 
 Before risky or long work, record current branch/revision, working-tree status, feature state, completed plan steps, verification results and next safe action in `HANDOFF.md`.

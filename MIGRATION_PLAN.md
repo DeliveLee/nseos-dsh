@@ -111,6 +111,7 @@ Codex 版真实失败是 5 个结构性根因 + 1 个元根因(`PLUGIN_IMPROVEME
 
 - 机器层 JS **≤ 1000 行**;自建持久化 schema **≤ 1**(flow-marker);门禁测试 **≤ 100**;无第二个状态文件。
 - R4 修正为:**否决任何自建状态机(不论语言)+ 第二个持久化 schema**;超出即回 P0。
+- **ledger-gate 的 `ledgerState` Map 是「进程内、按 session 的瞬时计数器 + 一次性催过标记」,不是持久化 schema、不是状态文件、不是状态机**:RAM-only、无版本、无回滚,`agent/disposed` 时清该 session 条目。这是 §2 已声明的「自建预算状态」那一类,不违反本条。若未来它长出「跨会话恢复 / 迁移 / 回滚」诉求,那是 `goals` 的事,不是它的扩展理由。
 - 资产收敛(去「为对等而对等」):skills 17→12(retire upgrade/setup/marketplace/configure-obsidian/sync-obsidian 后,见 §5 论证)、agents 8→5、门禁 6→4、references 17→1 个 OPERATING_MODEL + ≤8 附录、templates 21→16(去 5 Obsidian note)。
 
 ## 5. 需论证的 Retired(评审 A 补充点 2)
