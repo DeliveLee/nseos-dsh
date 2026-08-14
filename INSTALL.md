@@ -53,6 +53,15 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.6.0 — 2026-08-14 prompt-routing 每回合重注入 + 实现边界审计可核化
+
+**门禁(`@deliveli/nseos-gates`)**:
+- 新增 `agent/pre-step` 每回合首 step 注入(AUDIT #1):业务仓库每个回合顶一句反漂移/纪律指针(交给 feature-developer TDD / 报数收口 / 自审≠独立 / 撞框架限制走 feedback),长会话里纪律不被工具流量冲淡。**只注入、不 reject,用户消息零丢失**;仅首 step 一次、仅业务仓库。
+- 新增 peer 依赖 `@deepseek-ai/dsh-llm`(`createUserMessage`)。
+
+**技能**:
+- `nseos-review-feature` Step 7.5 实现边界审计可核化:三步核「谁写的」(读 ack + `git log` 查 diff 来历 + 以「commit 是否有对应子代理 closing message」为准),并写诚实边界——DSH 里编排者与子代理同机同 git 身份,`git log` 分不出两者,ack 是自证不是证据。
+
 ### v0.5.0 — 2026-08-14 release 凭据门真正接入 action-gate(补文档-代码缺口)
 
 **门禁(`@deliveli/nseos-gates`)**:

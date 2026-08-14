@@ -6,6 +6,7 @@
 // denies. Every fail-open degradation emits gateWarn so it is observable, never
 // silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
+import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
 import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
 
@@ -419,6 +420,38 @@ export function apply(ctx) {
       // fail-open
     }
   });
+
+  // ── prompt-routing (每回合首 step 注入) ─────────────────────────────────
+  // A one-line anti-drift/discipline pointer injected once per human turn (first
+  // step only) so the TDD / report-a-number / independent-review discipline is
+  // not diluted by long tool traffic. Fail-open: never rejects a step (a user
+  // message is never dropped). Business repos only.
+  const PROMPT_ROUTING_REMINDER =
+    "[nseos] 本回合若在业务仓库做交付执行:①产品代码交给 feature-developer 子代理(测试驱动,先写测试);②宣称「做完」前按进度真源报剩余 N/M;③自审≠独立评审,release 凭据的 review.independent 要如实写 false;④反复撞到同一框架限制就走 nseos-feedback 记录。纯阅读/问答/预设源仓库忽略本提醒。";
+  ctx.on("agent/pre-step", async (payload, next) => {
+    try {
+      if (payload.step !== 1) return next(); // once per turn, first step only
+      const agent = payload && payload.agent;
+      if (!agent || !Array.isArray(payload.messages)) return next();
+      const cwd = agent.session && agent.session.header ? agent.session.header.cwd : undefined;
+      if ((await isBusinessRepo(cwd)) !== true) return next();
+      const decision = await next();
+      if (decision.kind !== "enter") return decision;
+      return {
+        kind: "enter",
+        messages: [
+          ...decision.messages,
+          createUserMessage({
+            content: [{ type: "text", text: PROMPT_ROUTING_REMINDER }],
+            source: { kind: "plugin", plugin: name, form: "snapshot", sections: [{ name, text: PROMPT_ROUTING_REMINDER }] },
+          }),
+        ],
+      };
+    } catch (e) {
+      gateWarn("prompt-routing", e);
+      return next();
+    }
+  }, { prepend: true });
 
   // ── skill-gate ──────────────────────────────────────────────────────────
   ctx.on("tools/pre-execute", async (exec, next) => {

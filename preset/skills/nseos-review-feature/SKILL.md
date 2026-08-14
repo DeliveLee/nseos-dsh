@@ -27,7 +27,11 @@ description: 独立评审一个功能:对照其已批准合同、精确 diff、�
 5. 对用户可见的改动,活路径验证是一道硬门:驱动真正在跑的应用(browser/CLI/device/真实 API)走完每一条受影响的流程,并捕获真实的 console、network、screenshot 或 log 证据。只有绿灯测试永远证明不了一条用户可见验收判据;对用户可见范围缺少活路径证据的 Review Report 是不完整,不是通过。当需求或所报 bug 关注的就是真实路径时,mock 或 stub 栈不能顶替真实路径。凡活路径验证被推迟——推迟到迁移时、之后的会话、或推给用户——都要求在 Feature State 与 Handoff 里记一条具名 PENDING;开发者摘要里一句诚实的话是披露,不是通过的门。对授权/权限缺陷具体来说(FB-20260719-006):当没有真正驱动一个特权操作的真实 UI 或客户端入口去复现违规时,Review Report 必须显式记录所用的验证方式——要么 `live reproduction`,要么 `e2e negative cases + code read; real entry not driven because <reason>`——让「可达性/验证」的取舍留在记录上,而不是隐在散文里。这不强制活路径复现(e2e 负例加一份代码阅读仍是强证据);它强制的是把方式说清楚,而不是默认。
 6. 对全面级、审计级或发布前评审,以及对 Complex/Exceptional 变更等级,按维度扇出多个评审者,然后对每条发现用一个被要求去反驳它的独立怀疑者做对抗验证(默认当作已被驳倒;只保留存活下来的)。对规范符合性检查,用只拿到 ground truth 和活对象、永远拿不到 diff 的盲验者。仅 Small/Standard 变更,单次 quality-reviewer 通过就足够。
 7. 独立评审期间不改实现代码。
-7.5 **实现边界审计(FB-20260716-006):** 若存在则读 `ai-nseos/state/.impl-boundary-ack`,并检查 diff 的来历——产品代码应由 `feature-developer` 角色子代理(测试驱动开发)实现,而不是编排会话。若 ack(或会话记录)显示编排者直接改了产品代码,在 Review Report 里记一条流程发现并带上所述理由;编排者无测试地直接改动至少算 P2。
+7.5 **实现边界审计(FB-20260716-006):** 产品代码应由 `feature-developer` 角色子代理(测试驱动开发)实现,而不是编排会话。用三步核「谁写的」,**不要只看 ack(ack 是自证)**:
+   1. 读 `ai-nseos/state/.impl-boundary-ack`(谁 + 为什么 + 哪些文件);
+   2. `git log --format='%h %an %s' <base>..HEAD -- <产品码路径>` 列出改动来源;
+   3. **诚实边界**:DSH 里编排者与子代理同机同 git 身份,`git log` 分不出两者——所以以「提交是否有对应的子代理 closing message / 报告」为准:**只有 commit、没有对应子代理交付记录,就是编排者直改的强信号**。
+   发现编排者直改产品代码,在 Review Report 记一条流程发现并带上所述理由;编排者无测试地直改至少算 P2。
 7.6 **从原始需求重建可判条目,而不是从计划(FB-20260728-004)。** 实现计划、设计文档与开发者摘要都是受审的主张——绝不是事实输入。在看证据之前,写一张需求 oracle 矩阵,行来自用户的原始需求文本,每个可判子句一行,每行含:`requirement_id / source / actor / state / surface / data_fixture / direct_observable / negative_control / evidence / verdict`。**空单元格的行不能聚合成通过**,`verdict` 用 `references/VERIFICATION.md`(§1)的 `claim_verdict` 命名空间。这就是*变更验证*("我改的东西生效了吗?")与*符合性验证*("对象作为一个整体是否符合 ground truth?")的区别——后者才能抓到计划从没想到的东西,而它正是被跳过的那一个。两种形态要按名字查,因为它们在这里已经发过 false-green:顶替最终用户结果的中介代理(只查首跳的 redirect,而真实链路还有第二跳;SEO 标签用渲染后的 DOM 而不是原始 HTML;admin 界面用 GraphQL 字段而不是真实页面),以及 `CAPABILITY_ONLY`——代码支持四种放置,真实数据里一种都没有,而「能力存在」被聚合成「已验证」(`references/VERIFICATION.md` §5.5–5.6 拥有这两类判断;不要复述它们,应用它们)。
 8. 用每一条验收判据、实际命令/结果、活路径证据、P0–P3 发现、范围评审与缺失证据更新 Review Report。
 8.5 **发布门禁的独立评审证据(FB-20260716-003):** Review Report 写完后,记录 action-gate 在主干 push 前检查的证据——`ai-nseos/state/.release-ready.json` 的 `review` 字段。**确切命令在 `references/RELEASE.md` 第 2 步(唯一真源——不要抄到这里);** 从你将 push 的那个检出运行它。这一步有三点要紧:
