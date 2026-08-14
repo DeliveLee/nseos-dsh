@@ -451,7 +451,7 @@ export function apply(ctx) {
       gateWarn("prompt-routing", e);
       return next();
     }
-  }, { prepend: true });
+  });
 
   // ── skill-gate ──────────────────────────────────────────────────────────
   ctx.on("tools/pre-execute", async (exec, next) => {
