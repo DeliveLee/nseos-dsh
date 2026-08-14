@@ -1,14 +1,19 @@
 {
   "name": "@deliveli/nseos-gates",
-  "description": "AI-NSEOS delivery-governance gates for DSH: flow-marker predicate + skill/doc/action/progress gates, all fail-open.",
-  "version": "0.1.0",
+  "description": "AI-NSEOS delivery-governance gates for DSH: flow-marker predicate + skill/doc/action/progress gates + read-only reviewer subagent, all fail-open.",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": "./lib/index.js"
+    ".": "./lib/index.js",
+    "./core": "./lib/core.js"
   },
   "files": [
-    "lib/index.js"
+    "lib/index.js",
+    "lib/core.js"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-subagent-in-process-driver": "*"
+  }
 }

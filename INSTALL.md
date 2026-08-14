@@ -4,15 +4,16 @@
 
 ## 1. 安装门禁包(一次性)
 
-门禁是自定义 Cordis 包 `@deliveli/nseos-gates`,DSH 从「healed fallback」目录 `~/.dsh/profiles/node_modules/` 解析 preset 引用的包。所以要在那里建一个指向本仓源码的软链:
+门禁是自定义 Cordis 包 `@deliveli/nseos-gates`,DSH 从「healed fallback」目录 `~/.dsh/profiles/node_modules/` 解析 preset 引用的包。**必须拷贝(不能软链)**——包内 import 了 `@deepseek-ai/dsh-subagent-in-process-driver`,软链会因真实路径在本仓而解析不到该依赖:
 
 ```bash
 mkdir -p ~/.dsh/profiles/node_modules/@deliveli
-ln -sfn <repo>/packages/nseos-gates \
+rm -rf ~/.dsh/profiles/node_modules/@deliveli/nseos-gates
+cp -R <repo>/packages/nseos-gates \
   ~/.dsh/profiles/node_modules/@deliveli/nseos-gates
 ```
 
-> 说明:DSH 启动时 `healProfilesModuleFallback` 会把 CLI 自带包软链进该目录,但不会删掉手动加的软链,所以这条软链会持久保留。DSH 升级后若失效,重跑上面两行即可。
+> 说明:DSH 启动时 `healProfilesModuleFallback` 会把 CLI 自带包软链进该目录,不会删掉手动放的目录。**改门禁代码后要重跑上面的 `cp -R`**(拷贝后不自动同步)。DSH 升级后若解析失效,重跑上面三行即可。
 
 ## 2. 安装 preset
 

@@ -3,9 +3,36 @@
 // swallowed deny. The pure predicate lives in core.js (unit-tested); this file
 // only wires fs + events.
 
-import { DONE_CLAIM_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "./core.js";
+import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
+import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
+
+// Read-only reviewer: no file writes, no shell, no recursive delegation. The
+// role persona arrives in the prompt; this provider only enforces the boundary.
+const READ_ONLY_PERSONA =
+  "You are a read-only independent reviewer subagent. You may read, search, and reason, but you must not write or edit files, run shell commands, or delegate further. Return your analysis as text.";
+const READ_ONLY_TOOL_FILTER = {
+  deny: ["write", "edit", "bash", "subagent", "subagent_fork", "workflow", "ralph", "todo_write"],
+};
+
+class NseosReviewerProvider {
+  name;
+  capabilities = { outputSchema: false, depthLimit: true, toolFilter: true, persona: true };
+  inheritsParentContext = false;
+  constructor(name) {
+    this.name = name;
+  }
+  start(request) {
+    if (request.persona === undefined) request.persona = READ_ONLY_PERSONA;
+    request.toolFilter = READ_ONLY_TOOL_FILTER;
+    request.maxDepth = 1;
+    return startInProcessRun(request, {});
+  }
+  prepareContinuable() {
+    return Promise.resolve({});
+  }
+}
 
 export const name = "@deliveli/nseos-gates";
 export const inject = [];
@@ -13,6 +40,14 @@ export const inject = [];
 export function apply(ctx) {
   const fs = ctx.get("fs");
   if (fs === undefined) return;
+
+  // Register the read-only reviewer subagent backend. The spawn backend already
+  // runs a child with zero parent context; this provider additionally removes
+  // every write/delegation tool so the reviewer cannot mutate or recurse.
+  const subagents = ctx.get("subagents");
+  if (subagents !== undefined) {
+    subagents.registerProvider(new NseosReviewerProvider("nseos-reviewer"));
+  }
 
   function cwdOf(exec) {
     const c = exec && exec.agent && exec.agent.session && exec.agent.session.header;
@@ -86,6 +121,53 @@ export function apply(ctx) {
     }
   }
 
+  // Glossary gate: a doc-adopted repo (docs/domain/GLOSSARY.md) with any feature
+  // armed (.gate-armed) but not cleared (ambiguity-cleared) holds product code.
+  // Returns the offending feature name, or undefined (gate holds nothing).
+  async function glossaryArmedNotCleared(cwd) {
+    try {
+      if (!(await hasEntry(cwd, "docs/domain/GLOSSARY.md"))) return undefined;
+      const dir = await fs.resolve("ai-nseos/state/features", cwd ? { cwd } : undefined);
+      let entries;
+      try {
+        entries = await fs.listDir(dir);
+      } catch (e) {
+        return undefined; // no features dir → nothing armed
+      }
+      for (const e of entries) {
+        if (e.type !== "directory") continue;
+        const base = "ai-nseos/state/features/" + e.name;
+        if (!(await hasEntry(cwd, base + "/.gate-armed"))) continue;
+        if (await hasEntry(cwd, base + "/ambiguity-cleared")) continue;
+        return e.name; // armed but not cleared
+      }
+      return undefined;
+    } catch (e) {
+      return undefined; // fail-open: can't read → don't hold
+    }
+  }
+
+  // Prod-schema scan: fail-loud on ORM auto-sync markers. Returns an object
+  // { finding } (matched pattern + file) or { unknown } (a candidate could not
+  // be read) or {} (clean). "unknown" is a deny, never a silent allow.
+  async function prodSchemaScan(cwd) {
+    try {
+      for (const rel of PROD_SCHEMA_CANDIDATES) {
+        const target = await fs.resolve(rel, cwd ? { cwd } : undefined);
+        const info = await fs.stat(target);
+        if (info === undefined) continue; // candidate absent → not an unknown
+        const text = await safeRead(target);
+        if (text === undefined) return { unknown: true, file: rel }; // present but unreadable
+        for (const re of PROD_SCHEMA_PATTERNS) {
+          if (re.test(text)) return { finding: { file: rel, pattern: re.source } };
+        }
+      }
+      return {};
+    } catch (e) {
+      return { unknown: true };
+    }
+  }
+
   // ── session-start injection ─────────────────────────────────────────────
   // Seed session id (needed for marker attribution) + the repo's delivery mode
   // once. Static routing lives in the persona (assembled every step); this is
@@ -132,8 +214,10 @@ export function apply(ctx) {
   });
 
   // ── action-gate ─────────────────────────────────────────────────────────
-  // Release-class bash needs init + a fresh marker; report ALL unmet items in
-  // one aggregated deny (no deny staircase). Fail-open.
+  // Release-class bash needs init + a fresh marker + a clean prod-schema scan;
+  // report ALL unmet items in one aggregated deny. The prod-schema scan is
+  // fail-LOUD (a "couldn't see" is never a "clean"): an unknown scan result
+  // denies. The rest is fail-open.
   ctx.on("tools/pre-execute", async (exec, next) => {
     try {
       if (exec.name !== "bash") return next();
@@ -143,18 +227,22 @@ export function apply(ctx) {
       if (!(await isBusinessRepo(cwd))) return next();
       const initd = await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md");
       const active = await flowActive(exec);
-      if (initd && active) return next();
-      const gaps = releaseGaps({ initd, flowActive: active });
+      const scan = await prodSchemaScan(cwd);
+      let prodSchemaGap;
+      if (scan.finding) prodSchemaGap = "ORM 自动迁移风险(" + scan.finding.file + " 命中 " + scan.finding.pattern + "),先走 prod-schema 五步并与人类确认";
+      else if (scan.unknown) prodSchemaGap = "prod-schema 扫描不完整(无法确认无自动迁移风险),按安全检查 fail-loud 处理";
+      if (initd && active && prodSchemaGap === undefined) return next();
+      const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap });
       return {
         kind: "deny",
-        reason: "release 类命令(如 git push / gh pr merge)需本会话在 nseos 流程内。当前缺:\n- " + gaps.join("\n- "),
+        reason: "release 类命令(如 git push / gh pr merge)需本会话在 nseos 流程内且无 ORM 自动迁移风险。当前缺:\n- " + gaps.join("\n- "),
       };
     } catch (e) {
       return next();
     }
   });
 
-  // ── doc-gate (implementation-boundary reminder) ─────────────────────────
+  // ── doc-gate (glossary-armed hard gate + implementation-boundary reminder) ─
   ctx.on("tools/pre-execute", async (exec, next) => {
     try {
       if (exec.name !== "write" && exec.name !== "edit") return next();
@@ -162,6 +250,16 @@ export function apply(ctx) {
       if (typeof fp !== "string" || /\.(md|json|ya?ml|toml|lock)$/i.test(fp)) return next();
       const cwd = cwdOf(exec);
       if (!(await isBusinessRepo(cwd))) return next();
+      // Branch 1 — hard gate: domain-term ambiguity unresolved.
+      const armed = await glossaryArmedNotCleared(cwd);
+      if (armed !== undefined) {
+        return {
+          kind: "deny",
+          reason:
+            "术语歧义门:feature `" + armed + "` 已武装(.gate-armed)但未清歧义(缺 ambiguity-cleared)。先在 docs/domain/GLOSSARY.md 定义本 feature 触及的每个领域术语并写 ambiguity-cleared,再写产品代码。",
+        };
+      }
+      // Branch 2 — advisory reminder: implementation boundary.
       if (!(await flowActive(exec))) return next();
       if (await hasEntry(cwd, "ai-nseos/state/.impl-boundary-ack")) return next();
       return {

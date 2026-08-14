@@ -59,11 +59,36 @@ export function evaluateMarker(text, sessionId, now = Date.now()) {
   return { status: "active", reason: "fresh marker attributed to this session" };
 }
 
-// Release readiness: which of init / flow-marker / (future: prod-schema, doc)
-// are unmet. Returns a list of unmet-item labels for the single aggregated deny.
-export function releaseGaps({ initd, flowActive }) {
+// Release readiness: which of init / flow-marker / prod-schema are unmet.
+// Returns a list of unmet-item labels for the single aggregated deny.
+export function releaseGaps({ initd, flowActive, prodSchema }) {
   const gaps = [];
   if (!initd) gaps.push("仓库未 init(缺 ai-nseos/PROJECT_PROFILE.md)");
   if (!flowActive) gaps.push("本会话无新鲜 flow marker");
+  if (prodSchema !== undefined && prodSchema !== null) gaps.push(prodSchema);
   return gaps;
 }
+
+// ORM auto-sync markers that can silently alter a production schema. A release
+// must fail loud on these (a security check where "couldn't see" is never
+// "clean"). Bounded candidate set, checked in index.js.
+export const PROD_SCHEMA_PATTERNS = [
+  /synchronize\s*:\s*true/i, // TypeORM
+  /AUTO_MIGRATE\s*=\s*(?:1|true|on)/i, // Django / env
+  /\bprisma\s+db\s+push\b/i, // Prisma migrate-in-place
+];
+
+export const PROD_SCHEMA_CANDIDATES = [
+  "package.json",
+  ".env",
+  ".env.production",
+  ".env.local",
+  "prisma/schema.prisma",
+  "ormconfig.json",
+  "ormconfig.ts",
+  "typeorm.config.ts",
+  "src/data-source.ts",
+  "src/database/data-source.ts",
+  "server/src/data-source.ts",
+  "config/database.ts",
+];

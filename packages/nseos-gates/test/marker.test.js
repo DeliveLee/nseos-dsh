@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, evaluateMarker, isNseosSkill, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -77,6 +77,15 @@ test("release patterns are conservative (release-class yes, feature-branch no)",
 test("releaseGaps aggregates every unmet item", () => {
   assert.deepStrictEqual(releaseGaps({ initd: false, flowActive: false }).length, 2);
   assert.deepStrictEqual(releaseGaps({ initd: true, flowActive: true }), []);
+  assert.deepStrictEqual(releaseGaps({ initd: true, flowActive: true, prodSchema: "ORM 风险" }), ["ORM 风险"]);
+});
+
+test("prod-schema patterns catch auto-migrate, not plain migrate scripts", () => {
+  assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test('synchronize: true')), true);
+  assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test("AUTO_MIGRATE=1")), true);
+  assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test("prisma db push")), true);
+  assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test("synchronize: false")), false);
+  assert.strictEqual(PROD_SCHEMA_PATTERNS.some((re) => re.test("npm run migrate")), false);
 });
 
 test("done-claim patterns match claims, not ordinary closes", () => {
