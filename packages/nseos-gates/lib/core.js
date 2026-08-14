@@ -14,6 +14,19 @@ export const RELEASE_PATTERNS = [
   /\bgit\s+tag\b/,
 ];
 
+// Production-remote / deployment commands. The action-gate treats these like
+// release-class: in a business repo without a fresh flow marker they are
+// denied. This closes the gap where a session could deploy via ssh/scp/rsync/
+// kubectl while only git push/tag were gated (business-repo session FB-20260814-002).
+// `ssh`/`scp`/`rsync` require a following space, so ssh-keygen/ssh-add/
+// ssh-copy-id are not caught.
+export const DEPLOY_PATTERNS = [
+  /\bssh\s+/,
+  /\bscp\s+/,
+  /\brsync\s+/,
+  /\bkubectl\s+/,
+];
+
 // Closing text that declares completion — deliberately BROAD. The progress-gate
 // is an advisory "report a number" steer: a false positive costs one extra
 // nudge while a false negative is the drift itself (FB-20260805-001/004 — "坏

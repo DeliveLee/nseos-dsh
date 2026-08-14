@@ -7,7 +7,7 @@
 // silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -397,24 +397,29 @@ export function apply(ctx) {
   });
 
   // ── action-gate ─────────────────────────────────────────────────────────
-  // Release-class bash needs init + a fresh marker + a clean prod-schema scan;
-  // report ALL unmet items in one aggregated deny. The prod-schema scan is
-  // fail-LOUD (a "couldn't see" is never a "clean"): an unknown scan result
-  // denies. The rest is fail-open.
+  // Release/deploy-class bash needs init + a fresh marker + a clean prod-schema
+  // scan; report ALL unmet items in one aggregated deny. The prod-schema scan
+  // is fail-LOUD (a "couldn't see" is never a "clean"): an unknown scan result
+  // denies. The rest is fail-open. DEPLOY_PATTERNS (ssh/scp/rsync/kubectl) are
+  // gated alongside RELEASE_PATTERNS so a session cannot deploy to production
+  // by shelling out while only git push/tag were covered.
   ctx.on("tools/pre-execute", async (exec, next) => {
     try {
       if (exec.name !== "bash") return next();
       const cmd = exec.arguments && exec.arguments.command;
-      if (typeof cmd !== "string" || !RELEASE_PATTERNS.some((re) => re.test(cmd))) return next();
+      if (typeof cmd !== "string") return next();
+      const isRelease = RELEASE_PATTERNS.some((re) => re.test(cmd));
+      const isDeploy = DEPLOY_PATTERNS.some((re) => re.test(cmd));
+      if (!isRelease && !isDeploy) return next();
       const cwd = cwdOf(exec);
       const repo = await isBusinessRepo(cwd);
       if (repo === false) return next(); // definitively not a business repo
       if (repo !== true) {
-        // fail-loud: a release-class command must not silently pass when the
+        // fail-loud: a release/deploy command must not silently pass when the
         // repo type is undeterminable (MIGRATION_PLAN §0.2 #6).
         return {
           kind: "deny",
-          reason: "release 类命令:无法确认当前目录是否为业务仓库(仓库检测出错),按 fail-loud 处理不静默放行——请确认工作目录与 .git 状态后重试。",
+          reason: "release/deploy 类命令:无法确认当前目录是否为业务仓库(仓库检测出错),按 fail-loud 处理不静默放行——请确认工作目录与 .git 状态后重试。",
         };
       }
       const initd = await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md");
@@ -425,9 +430,13 @@ export function apply(ctx) {
       else if (scan.unknown) prodSchemaGap = "prod-schema 扫描不完整(无法确认无自动迁移风险),按安全检查 fail-loud 处理";
       if (initd && active && prodSchemaGap === undefined) return next();
       const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap });
+      const kind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "release/deploy 类命令(如 git push / git tag / ssh)";
       return {
         kind: "deny",
-        reason: "release 类命令(如 git push / gh pr merge)需本会话在 nseos 流程内且无 ORM 自动迁移风险。当前缺:\n- " + gaps.join("\n- "),
+        reason:
+          kind + "需本会话在 nseos 流程内(新鲜 flow marker)且无 ORM 自动迁移风险。当前缺:\n- " +
+          gaps.join("\n- ") +
+          "\n\n注意:flow marker 是流程自证,不是人类授权。若本次是真实发布/部署,请先向人类明确确认(问人类工具)并记录答复,不要只写个 marker 就继续(FB-20260814-002)。",
       };
     } catch (e) {
       gateWarn("action-gate", e);

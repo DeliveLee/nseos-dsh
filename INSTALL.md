@@ -53,6 +53,17 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.4.0 — 2026-08-14 部署命令纳入门禁 + 诚实化授权语义(某业务仓库 会话复盘)
+
+**门禁(`@deliveli/nseos-gates`)**:
+- action-gate 新增 `DEPLOY_PATTERNS`(`ssh`/`scp`/`rsync`/`kubectl`),与 `RELEASE_PATTERNS` 同层 gating:业务仓库无新鲜 flow marker 时 deny。此前生产部署可用 `ssh mp 'sudo bash'` + `scp` 完全绕过门禁(只有 `git push/tag` 被拦,`FB-20260814-002`)。
+- action-gate deny 文案诚实化:明说「flow marker 是流程自证、不是人类授权;真实发布/部署先向人类确认再继续」,不再暗示「写个 marker 就能过」。
+
+**技能**:
+- `nseos-integrate`:新增「发布 ≠ 部署」——push `v*` tag 会触发部署流水线时,必须在 push 前明说后果并作为独立确认点(`FB-20260814-001`)。
+
+**诚实边界**:`DEPLOY_PATTERNS` 仍只覆盖远程/production 命令;本地 `sudo`/`systemctl`/`podman`/`docker` 因歧义过大未纳入(留待需要时定)。flow marker 仍是模型自铸,「在流程内」是自证不是核验——真正的硬边界是 DSH sandbox + approval。
+
 ### v0.3.0 — 2026-08-14 长对话漂移防护 + 对抗评审修复
 
 **门禁(`@deliveli/nseos-gates`)**:

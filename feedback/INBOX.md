@@ -50,3 +50,4 @@
 - Observation: 反漂移/feedback/doc-audit 的「每轮提醒」全部悬空:现在只在 session-start 注入一次,8 小时工具流量会把它冲淡。三处文档(route-work 防跑偏、nseos-feedback 每轮提醒、nseos-doc-audit stale 提醒)都写着「每轮路由会提醒」,但路由层没有重注入。
 - Expected: `agent/pre-step`(每人类回合首 step)注入一行反漂移指针,只注入不 reject;同回合不重复注入。
 - Suggested change: 补一个 `agent/pre-step` listener,注入一行「报数才算收口 + 账本 + feedback 队列」指针,并让三处文档的「每轮提醒」真正兑现。这是长会话上下文稀释的最便宜、最高杠杆的修复。
+

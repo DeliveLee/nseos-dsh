@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -72,6 +72,19 @@ test("release patterns are conservative (release-class yes, feature-branch no)",
   assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("gh pr merge 42")), true);
   assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("git commit -m x")), false);
   assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("npm test")), false);
+});
+
+test("deploy patterns catch remote/production commands, not local key tools", () => {
+  // The business-repo deployment used exactly these (FB-20260814-002).
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh mp 'sudo bash -s'")), true);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh -o BatchMode=yes delivelee.xyz 'bash -s'")), true);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("scp file.txt mp:/tmp/")), true);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("rsync -avz ./dist mp:/var/www")), true);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("kubectl apply -f deploy.yaml")), true);
+  // ssh key-management tools are NOT remote-shell deployment.
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-keygen -t ed25519")), false);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-add ~/.ssh/id_ed25519")), false);
+  assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-copy-id mp")), false);
 });
 
 test("releaseGaps aggregates every unmet item", () => {
