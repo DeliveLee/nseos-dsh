@@ -1,0 +1,58 @@
+# 决策日志(DECISIONS)
+
+> 状态:实施前决策已锁定(D0–D5 + 分发 + 降级)。本文件是 P0 的产物之一,后续每阶段决策追加于此。
+
+## D0 · 基准源与深度
+
+- 基准源 = Claude 插件 `<upstream-nseos>`(直接重新推导,**不以 Codex 迁移为基准**;Codex 版效果差、维护成本高,仅作反面教材)。
+- 深度 = 全量对等,**对等 = 效果对等**(机制用 DSH 原生面替换)。三层:核心全量 / 机制替换(论证等价)/ 诚实降级(显式边界)。
+
+## D1 · 对等边界与降级说明(用户已裁决)
+
+| 项 | 降级后形态 | 去掉 | 保留 |
+|---|---|---|---|
+| Obsidian 知识库 | `nseos-knowledge`(并入 `nseos-learn`),阶段边界触发/手动,写 vault 指定路径 | 自动双向同步、Stop 门禁强制、`.obsidian/` 插件安装 | 知识沉淀能力 + 5 个 Obsidian note 模板(vault 路径待用户配置) |
+| doc-audit cron | `nseos-doc-audit` 手动 sweep skill + 路由注入 stale 提醒 | 自动定时调度(DSH 无 cron) | 漂移检测、只改 `*.md`、开 PR 不自动合、剪枝留人确认 |
+| 分发 | 单独 GitHub 私有库,每次完成打 tag + release | `dist/*.zip` + `TEAM-INSTALL.md` | 版本化分发 + 安装路径(仓库名待用户提供) |
+| 621 测试 | 语义重表达为门禁负控制(≤100) | Python hook 测试本身 | marker 五态 / RELEASE_CLASS / done-claim / stale 判定语义 |
+
+诚实缺口(明示,不伪装对等):DSH 无 cron → doc-audit 漂移只能被动(路由提醒)或手动发现;Obsidian 自动同步消失。
+
+## D2 · 命名与去重(用户已裁决)
+
+- 前缀 = **`nseos`**(迁移产物统一 `nseos-*`)。
+- skill-gate allow-list = 迁移后的 `nseos-*` 生命周期技能显式 kebab-case 名(数量 = 最终收敛后的生命周期技能数)。
+- 存量 6 skill 去重:
+  - `deliveli-delivery` → **吸收进 `nseos-route-work`**,退役/降为一句话别名;其 `$nseos-*` 幽灵引用改写为真实 `nseos-*` 名。
+  - `requirements-discovery` / `web-app-verification` / `product-ux-redesign` / `long-running-execution` / `deliveli-project-memory` → **保留为「步骤内工具」层**,被 nseos 生命周期技能在步骤内调用(类比 Claude 版 superpowers 是内层工具);流程外调用会被 skill-gate deny,流程内放行。
+
+## D3 · 机制映射(评审 B 定稿)
+
+- deny 全走 `tools/pre-execute`(async,`PreToolDecision.deny{reason}`);`tools.guard`(同步)、`fs/write-intent/edit-intent`(版本守卫)都**不用**。
+- session 路由 → `agent/session-start` + `agent.inject()`(不用 `systemPrompt.section()`,拿不到按会话上下文)。
+- prompt 路由 → `agent/pre-step`(每人类回合首 step 注入,只注入不 reject)。
+- progress-gate Stop → `agent/turn-stopping` + `ctx.sessionQuery` 自读收口文本 + `agent.steer()` 拦截 + `storageDomain` 预算。
+- 8 agents → `subagents.registerProvider()`;只读 reviewer = provider `start()` 内 `childSession.append('sandbox/mode',{mode:'read-only'})`;禁递归 = `maxDepth` + `toolFilter.deny`。
+- 审批门禁 = `approval.request()`(工具级)+ 合同状态进 Phase 3 + 人类批范围 `userQuestions.ask()`;门禁只用 allow/deny,不用 ask(无 approval 服务时退化为 deny)。
+- `ToolExecution` 无 cwd/分类字段:工具名重键 + `arguments.*` 取参 + `sandboxPolicy.resolve` 推仓库根;orchestrator-vs-subagent 用 `exec.agent` + `agents.requireInitiator()`/`isOwnedBy()`。
+
+## D4 · 复杂度预算
+
+- 机器层 JS ≤ 1000 行;自建持久化 schema ≤ 1(仅 flow-marker);门禁测试 ≤ 100;无第二个状态文件。
+- 否决任何自建状态机(不论语言)+ 第二个持久化 schema;超出即回 P0。
+
+## D5 · 反 Codex 约束(11 条)
+
+见 `MIGRATION_PLAN.md` §0.2:不自建状态机 / 原生 event 不 subprocess hook / 真 deny + fail-open 必告警 / 不全量注入 / 可逆+声明+git 回滚 / 按动作类别 fail-open/fail-loud 二分 / 开放世界身份 / 只依赖承诺契约 / 源仓库自我豁免 / 人类逃生舱 / honest-scope(提醒≠安全边界)。
+
+## 分发模型(用户已裁决)
+
+- 迁移产物落一个单独 GitHub 私有库;每次阶段完成打 tag + release;`nseos` preset + skills 通过该库分发。仓库名/地址待用户提供。
+
+## 待办(P0 剩余交付物)
+
+1. `PARITY_CHECKLIST.md`(18 项,每条 = 可自动化负控制)。
+2. flow-marker 接口契约(5 属性 / 4h / 归属 / 空文件 / goal_source 优先级 / session-slug 消毒)。
+3. R1/R2/R3 实测结论落盘(R1 = scope:全局 standing vs 单 preset;R2 = `tools/pre-execute` 分类能力;R3 = goals 语义覆盖 → 已定「覆盖不了,flow-marker 自建」)。
+4. §5「需论证的 Retired」8 项效果的 DSH 等价物论证(stale 三态 / 自检提醒 / 一键升级 / zip / marketplace 缓存 / wiring 检测)。
+5. vault 路径、私有库地址 = 待用户提供。
