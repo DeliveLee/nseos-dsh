@@ -53,6 +53,11 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.7.1 — 2026-08-14 会话小结 = 账本投影,不是第二份散文真源
+
+- progress-gate steer 文案:收口时走 `nseos-knowledge` 写 Obsidian 小结(Updated/Why/Pending),并明说 **`Pending` 直接从 TASK_LEDGER/PROGRESS_MANIFEST 投影**,不得另写散文真源。
+- `nseos-knowledge` 触发时机节新增「会话小结是账本投影」:账本没有就写「无账本」,不在 Obsidian 另起散文进度。
+
 ### v0.7.0 — 2026-08-14 release 凭据必答测试证据 + 门禁只对编排者生效
 
 **门禁(`@deliveli/nseos-gates`)**:

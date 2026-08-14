@@ -659,7 +659,7 @@ export function apply(ctx) {
       agent.steer({
         content: [{
           type: "text",
-          text: "你宣称「做完了」。请先按进度真源重算剩余条目并报一个数字(剩余未绿 N 条,其中 M 条不依赖被挂起项)。若本任务没有可数账本,先说明判定依据。\n若有持久决策 / 已验证成果 / 事故,收口前先走 nseos-knowledge 沉淀到 Obsidian(vault 配置了的话);普通进度停点不写。",
+          text: "你宣称「做完了」。请先按进度真源重算剩余条目并报一个数字(剩余未绿 N 条,其中 M 条不依赖被挂起项)。若本任务没有可数账本,先说明判定依据。\n若有持久决策 / 已验证成果 / 事故,收口前走 nseos-knowledge 写一行 Obsidian 小结(Updated / Why / Pending):Pending 直接从 TASK_LEDGER / PROGRESS_MANIFEST 投影(红/绿 + 挂起原因 + parent_plan),不得另写一份散文真源;普通进度停点不写。",
         }],
         source: { kind: "user" },
       });

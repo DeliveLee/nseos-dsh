@@ -13,6 +13,7 @@ Git 与项目内 `ai-nseos/` 工件仍是权威执行记录;Obsidian 是可选�
 
 - 触发点:已批准计划、持久决策、交接、已验证完成、事故(见 `nseos-route-work`);普通进度停点不写。
 - 只写已批准的工件摘要;不存在持续后台同步。
+- **会话小结(Updated / Why / Pending)是账本的投影,不是第二份真源。** `Pending` 直接从 `templates/TASK_LEDGER.md`(红/绿 + 挂起原因 + `parent_plan`)与 `templates/PROGRESS_MANIFEST.md` 投影;账本没有就如实写「无账本」,不得在 Obsidian 里另起一份散文进度——过期的散文和准确的散文长得一样,而账本过期会让命令失败。小结的唯一增量价值是「交下轮/生产侧」的指针,其余都从可判文件投影。
 
 ## 一、配置(一次)
 
