@@ -180,7 +180,15 @@ export function apply(ctx) {
       let extra = "";
       if (cwd) {
         const mode = await deliveryMode(cwd);
-        if (mode !== undefined) extra = "\nDelivery mode = " + mode + "(缺失/不可判读一律按 interactive)";
+        if (mode !== undefined) extra += "\nDelivery mode = " + mode + "(缺失/不可判读一律按 interactive)。";
+        // Query pointer (progressive disclosure): point at the project's docs,
+        // never inject their full content.
+        if (await hasEntry(cwd, "docs/domain")) {
+          extra += "\n本仓库是 doc-adopted(docs/domain/):动手前先读 GLOSSARY.md / BUSINESS-RULES.md / WORKFLOWS.md 里与任务相关的部分,术语以 GLOSSARY 为准。";
+        }
+        if (await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md")) {
+          extra += "\n读 ai-nseos/PROJECT_PROFILE.md 拿治理详情、Always/Ask/Never 与 Progress source(进度真源)。";
+        }
       }
       agent.inject({
         content: [{
@@ -292,7 +300,7 @@ export function apply(ctx) {
       agent.steer({
         content: [{
           type: "text",
-          text: "你宣称「做完了」。请先按进度真源重算剩余条目并报一个数字(剩余未绿 N 条,其中 M 条不依赖被挂起项)。若本任务没有可数账本,先说明判定依据。",
+          text: "你宣称「做完了」。请先按进度真源重算剩余条目并报一个数字(剩余未绿 N 条,其中 M 条不依赖被挂起项)。若本任务没有可数账本,先说明判定依据。\n若有持久决策 / 已验证成果 / 事故,收口前先走 nseos-knowledge 沉淀到 Obsidian(vault 配置了的话);普通进度停点不写。",
         }],
         source: { kind: "user" },
       });
