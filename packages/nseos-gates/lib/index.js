@@ -7,7 +7,7 @@
 // silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -329,6 +329,50 @@ export function apply(ctx) {
     return undefined;
   }
 
+  // Read the current git HEAD (40-hex, lowercased) via .git/HEAD → loose ref →
+  // packed-refs. fs-only so the gate never shells out; returns undefined when
+  // the HEAD cannot be determined (the credential check then fails loud).
+  async function gitHead(cwd) {
+    try {
+      const head = await safeRead(await fs.resolve(".git/HEAD", cwd ? { cwd } : undefined));
+      if (head === undefined) return undefined;
+      const t = head.trim();
+      if (/^[0-9a-f]{40}$/i.test(t)) return t.toLowerCase(); // detached HEAD
+      const m = t.match(/^ref:\s*(.+?)\s*$/);
+      if (!m) return undefined;
+      const ref = m[1];
+      const loose = await safeRead(await fs.resolve(".git/" + ref, cwd ? { cwd } : undefined));
+      if (loose !== undefined) {
+        const s = loose.trim();
+        if (/^[0-9a-f]{40}$/i.test(s)) return s.toLowerCase();
+      }
+      const packed = await safeRead(await fs.resolve(".git/packed-refs", cwd ? { cwd } : undefined));
+      if (packed !== undefined) {
+        for (const line of packed.split("\n")) {
+          if (line[0] === "#" || line[0] === "^") continue;
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 2 && parts[1] === ref && /^[0-9a-f]{40}$/i.test(parts[0])) return parts[0].toLowerCase();
+        }
+      }
+      return undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  // Read + parse the release credential. undefined = missing OR unparseable
+  // (both treated as "no credential" by releaseCredentialCheck).
+  async function readReleaseCredential(cwd) {
+    try {
+      const text = await safeRead(await fs.resolve("ai-nseos/state/.release-ready.json", cwd ? { cwd } : undefined));
+      if (text === undefined) return undefined;
+      const obj = JSON.parse(text);
+      return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
   // Evict per-session ledger state when the agent leaves, so the Map stays
   // bounded over the process lifetime (fail-open best-effort cleanup).
   ctx.on("agent/disposed", (payload) => {
@@ -428,15 +472,38 @@ export function apply(ctx) {
       let prodSchemaGap;
       if (scan.finding) prodSchemaGap = "ORM 自动迁移风险(" + scan.finding.file + " 命中 " + scan.finding.pattern + "),先走 prod-schema 五步并与人类确认";
       else if (scan.unknown) prodSchemaGap = "prod-schema 扫描不完整(无法确认无自动迁移风险),按安全检查 fail-loud 处理";
-      if (initd && active && prodSchemaGap === undefined) return next();
-      const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap });
+      // Release credential (RELEASE.md): independent review + doc + prod_schema,
+      // each bound to head_sha. Only evaluated once the session is in-flow; a
+      // missing/stale credential is aggregated into the same single deny.
+      let credGaps = [];
+      let askIndependent = false;
+      if (initd && active) {
+        const cred = await readReleaseCredential(cwd);
+        const currentHead = await gitHead(cwd);
+        const docAdopted = await hasEntry(cwd, "docs/domain");
+        const r = releaseCredentialCheck(cred, { currentHead, docAdopted, prodSchemaFinding: scan.finding !== undefined });
+        credGaps = r.gaps;
+        askIndependent = r.askIndependent;
+      }
+      if (initd && active && prodSchemaGap === undefined && credGaps.length === 0) {
+        if (askIndependent) {
+          // Self-review (independent:false) is not silently packaged as reviewed:
+          // surface one human confirmation, exactly as Claude does.
+          return {
+            kind: "ask",
+            reason: "release 凭据的 review.independent=false(自审)。自审不能静默冒充独立评审,请人类确认一次再放行。",
+          };
+        }
+        return next();
+      }
+      const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap }).concat(credGaps);
       const kind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "release/deploy 类命令(如 git push / git tag / ssh)";
       return {
         kind: "deny",
         reason:
-          kind + "需本会话在 nseos 流程内(新鲜 flow marker)且无 ORM 自动迁移风险。当前缺:\n- " +
+          kind + "需本会话在 nseos 流程内(新鲜 flow marker)、无 ORM 自动迁移风险、且 release 凭据覆盖独立评审/文档/生产 schema。当前缺:\n- " +
           gaps.join("\n- ") +
-          "\n\n注意:flow marker 是流程自证,不是人类授权。若本次是真实发布/部署,请先向人类明确确认(问人类工具)并记录答复,不要只写个 marker 就继续(FB-20260814-002)。",
+          "\n\n注意:flow marker 与 release 凭据是自证/自签,不是人类授权;凭据只在对应真实动作发生后写(自签充数=伪造,比缺更糟)。若本次是真实发布/部署,请先向人类明确确认(问人类工具)并记录答复(FB-20260814-002)。",
       };
     } catch (e) {
       gateWarn("action-gate", e);

@@ -53,6 +53,15 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.5.0 — 2026-08-14 release 凭据门真正接入 action-gate(补文档-代码缺口)
+
+**门禁(`@deliveli/nseos-gates`)**:
+- action-gate 现在**真正校验** `ai-nseos/state/.release-ready.json`(此前 `RELEASE.md` 写了、代码没做——文档-代码缺口)。release/deploy 命令在流程内还需:`review`(独立评审,必带 `independent` + `head_sha`)、doc-adopted 仓的 `doc`、prod-schema 扫描有发现时的 `prod_schema`,每字段 `head_sha` 与当前 HEAD 不符即 `EVIDENCE_STALE`。
+- `review.independent=false`(自审)→ 返回 `ask`,自审不静默冒充独立评审(与 Claude 一致)。
+- 新增 `gitHead`(纯 fs 读 `.git/HEAD`→ loose ref→ packed-refs)与 `releaseCredentialCheck`(纯谓词),单条聚合 deny 列全缺失项。
+
+**诚实边界**:凭据仍是自签(advisory),「自签充数=伪造」由 deny 文案 + `RELEASE.md`/`AUTONOMY_POLICY.md` 纪律兜底,不是硬门;硬边界仍是 sandbox+approval。
+
 ### v0.4.0 — 2026-08-14 部署命令纳入门禁 + 诚实化授权语义(某业务仓库 会话复盘)
 
 **门禁(`@deliveli/nseos-gates`)**:

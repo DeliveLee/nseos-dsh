@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -91,6 +91,40 @@ test("releaseGaps aggregates every unmet item", () => {
   assert.deepStrictEqual(releaseGaps({ initd: false, flowActive: false }).length, 2);
   assert.deepStrictEqual(releaseGaps({ initd: true, flowActive: true }), []);
   assert.deepStrictEqual(releaseGaps({ initd: true, flowActive: true, prodSchema: "ORM 风险" }), ["ORM 风险"]);
+});
+
+test("releaseCredentialCheck: complete independent review passes, self-review asks", () => {
+  const head = "a".repeat(40);
+  const ok = { review: { head_sha: head, independent: true, note: "quality-reviewer" } };
+  assert.deepStrictEqual(releaseCredentialCheck(ok, { currentHead: head, docAdopted: false, prodSchemaFinding: false }), { gaps: [], askIndependent: false });
+  // Self-review (independent:false) is clean-but-ask, never silently packaged as independent.
+  const self = { review: { head_sha: head, independent: false, note: "orchestrator" } };
+  assert.deepStrictEqual(releaseCredentialCheck(self, { currentHead: head, docAdopted: false, prodSchemaFinding: false }), { gaps: [], askIndependent: true });
+});
+
+test("releaseCredentialCheck: missing/mismatched evidence is a gap", () => {
+  const head = "a".repeat(40);
+  // missing credential entirely
+  assert.ok(releaseCredentialCheck(undefined, { currentHead: head, docAdopted: false, prodSchemaFinding: false }).gaps.length > 0);
+  // missing independent
+  assert.ok(releaseCredentialCheck({ review: { head_sha: head } }, { currentHead: head, docAdopted: false, prodSchemaFinding: false }).gaps.some((g) => g.includes("independent")));
+  // missing head_sha
+  assert.ok(releaseCredentialCheck({ review: { independent: true } }, { currentHead: head, docAdopted: false, prodSchemaFinding: false }).gaps.some((g) => g.includes("head_sha")));
+  // head_sha moved on → EVIDENCE_STALE
+  const stale = releaseCredentialCheck({ review: { head_sha: "b".repeat(40), independent: true } }, { currentHead: head, docAdopted: false, prodSchemaFinding: false });
+  assert.ok(stale.gaps.some((g) => g.includes("HEAD")));
+  assert.strictEqual(stale.askIndependent, false);
+});
+
+test("releaseCredentialCheck: doc-adopted and prod-schema findings require their fields", () => {
+  const head = "a".repeat(40);
+  const review = { review: { head_sha: head, independent: true } };
+  // doc-adopted repo without doc field
+  assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: true, prodSchemaFinding: false }).gaps.some((g) => g.includes("doc")));
+  // prod-schema finding without prod_schema field
+  assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: false, prodSchemaFinding: true }).gaps.some((g) => g.includes("prod_schema")));
+  // unknown current HEAD is a gap (cannot verify the binding)
+  assert.ok(releaseCredentialCheck(review, { currentHead: undefined, docAdopted: false, prodSchemaFinding: false }).gaps.some((g) => g.includes("HEAD")));
 });
 
 test("prod-schema patterns catch auto-migrate, not plain migrate scripts", () => {

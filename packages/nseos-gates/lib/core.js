@@ -150,6 +150,45 @@ export function releaseGaps({ initd, flowActive, prodSchema }) {
   return gaps;
 }
 
+// Evaluate the release credential (ai-nseos/state/.release-ready.json) against
+// the current HEAD and repo state. Faithful port of the Claude release-cred
+// gate (RELEASE.md): review/doc/prod_schema each bind to head_sha; missing
+// evidence or a moved HEAD is a gap. `independent:false` is NOT a gap — it
+// means self-review, which Claude surfaces as a one-time "ask" so self-review
+// is never silently packaged as independent (askIndependent).
+export function releaseCredentialCheck(credential, { currentHead, docAdopted, prodSchemaFinding }) {
+  const gaps = [];
+  if (currentHead === undefined) {
+    gaps.push("无法确定当前 git HEAD,无法校验 release 凭据的 head_sha 绑定");
+  }
+  if (credential === undefined || credential === null || typeof credential !== "object" || Array.isArray(credential)) {
+    gaps.push("缺 release 凭据(ai-nseos/state/.release-ready.json,含 review/doc/prod_schema)");
+    return { gaps, askIndependent: false };
+  }
+  const review = credential.review;
+  if (review === undefined || review === null) {
+    gaps.push("缺独立评审凭据(review: 谁审/结论/head_sha/independent)");
+  } else {
+    if (typeof review.head_sha !== "string" || review.head_sha.trim() === "") gaps.push("review 缺 head_sha(凭据必须绑定代码)");
+    else if (currentHead !== undefined && review.head_sha.trim().toLowerCase() !== currentHead) gaps.push("review 的 head_sha 与当前 HEAD 不符(证据已过期,需重评)");
+    if (review.independent === undefined) gaps.push("review 缺 independent 字段(自审 false / 独立 true 必须写明)");
+  }
+  if (docAdopted) {
+    const doc = credential.doc;
+    if (doc === undefined || doc === null) gaps.push("缺文档维护凭据(doc)");
+    else if (typeof doc.head_sha !== "string" || doc.head_sha.trim() === "") gaps.push("doc 缺 head_sha");
+    else if (currentHead !== undefined && doc.head_sha.trim().toLowerCase() !== currentHead) gaps.push("doc 的 head_sha 与当前 HEAD 不符");
+  }
+  if (prodSchemaFinding) {
+    const ps = credential.prod_schema;
+    if (ps === undefined || ps === null) gaps.push("缺 prod_schema 凭据(扫描到 ORM 自动迁移风险,需先与人类确认)");
+    else if (typeof ps.head_sha !== "string" || ps.head_sha.trim() === "") gaps.push("prod_schema 缺 head_sha");
+    else if (currentHead !== undefined && ps.head_sha.trim().toLowerCase() !== currentHead) gaps.push("prod_schema 的 head_sha 与当前 HEAD 不符");
+  }
+  const askIndependent = gaps.length === 0 && review !== undefined && review !== null && review.independent === false;
+  return { gaps, askIndependent };
+}
+
 // ORM auto-sync markers that can silently alter a production schema. A release
 // must fail loud on these (a security check where "couldn't see" is never
 // "clean"). Bounded candidate set, checked in index.js.
