@@ -95,11 +95,22 @@ test("releaseGaps aggregates every unmet item", () => {
 
 test("releaseCredentialCheck: complete independent review passes, self-review asks", () => {
   const head = "a".repeat(40);
-  const ok = { review: { head_sha: head, independent: true, note: "quality-reviewer" } };
+  const ok = { review: { head_sha: head, independent: true, note: "quality-reviewer: 17/17 测试绿 + 变异负控制转红" } };
   assert.deepStrictEqual(releaseCredentialCheck(ok, { currentHead: head, docAdopted: false, prodSchemaFinding: false }), { gaps: [], askIndependent: false });
   // Self-review (independent:false) is clean-but-ask, never silently packaged as independent.
-  const self = { review: { head_sha: head, independent: false, note: "orchestrator" } };
+  const self = { review: { head_sha: head, independent: false, note: "orchestrator: 测试绿 + 负控制" } };
   assert.deepStrictEqual(releaseCredentialCheck(self, { currentHead: head, docAdopted: false, prodSchemaFinding: false }), { gaps: [], askIndependent: true });
+});
+
+test("releaseCredentialCheck: review.note must state test evidence (必答)", () => {
+  const head = "a".repeat(40);
+  // note 没提测试/负控制 → MISSING_TEST_EVIDENCE
+  const noTest = releaseCredentialCheck({ review: { head_sha: head, independent: true, note: "quality-reviewer: 看着没问题" } }, { currentHead: head, docAdopted: false, prodSchemaFinding: false });
+  assert.ok(noTest.gaps.some((g) => g.includes("测试绿")), "应缺测试证据");
+  assert.strictEqual(noTest.askIndependent, false);
+  // 提了测试绿 + 负控制 → 通过
+  const withTest = releaseCredentialCheck({ review: { head_sha: head, independent: true, note: "测试绿 73/73, 变异负控制转红" } }, { currentHead: head, docAdopted: false, prodSchemaFinding: false });
+  assert.deepStrictEqual(withTest.gaps, []);
 });
 
 test("releaseCredentialCheck: missing/mismatched evidence is a gap", () => {

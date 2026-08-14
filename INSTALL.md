@@ -53,6 +53,12 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.7.0 — 2026-08-14 release 凭据必答测试证据 + 门禁只对编排者生效
+
+**门禁(`@deliveli/nseos-gates`)**:
+- release 凭据 `review.note` **必答测试证据**:必须提「测试绿 + 关键负控制/变异」,否则 deny `MISSING_TEST_EVIDENCE`。这是「必答」不是「可核」——真伪交给独立评审,门禁只拦「连说都没说」。
+- **ledger-gate(账本一问)与 doc-gate 实现边界提醒改为「只对编排者(主会话)生效」**:`delegationDepth > 0` 的子代理是 bounded worker,无法问人类、本就是 feature-worker,这两道门对它 deny 是死局(Claude FB-20260805-003「22 次 100% 打错人」;现场:bonohair 子任务弹出「要不要建账本」把 worker 卡住)。
+
 ### v0.6.0 — 2026-08-14 prompt-routing 每回合重注入 + 实现边界审计可核化
 
 **门禁(`@deliveli/nseos-gates`)**:

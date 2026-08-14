@@ -76,6 +76,17 @@ export function apply(ctx) {
     return exec && exec.agent ? exec.agent.id : undefined;
   }
 
+  // A subagent child (delegationDepth > 0) is a bounded worker, not the
+  // orchestrator. Reminders that ask the model to "delegate" or "ask the human"
+  // (ledger-gate, doc-gate implementation-boundary) must NOT fire for it: the
+  // subagent IS the delegatee and cannot reach the human, so a deny there is a
+  // dead-end that just wedges the worker (Claude FB-20260805-003: "22 次 100%
+  // 打错人").
+  function isSubagent(exec) {
+    const h = exec && exec.agent && exec.agent.session && exec.agent.session.header;
+    return h ? (h.delegationDepth || 0) > 0 : false;
+  }
+
   async function safeRead(target) {
     try {
       return await fs.readText(target);
@@ -554,6 +565,7 @@ export function apply(ctx) {
   ctx.on("tools/pre-execute", async (exec, next) => {
     try {
       if (exec.name !== "write" && exec.name !== "edit") return next();
+      if (isSubagent(exec)) return next(); // 子代理是 bounded worker,无法问人类,不触发
       const fp = exec.arguments && exec.arguments.file_path;
       if (!isProductCodePath(fp)) return next();
       if (isBookkeepingPath(fp)) return next(); // bookkeeping: markers, acks, state
@@ -604,9 +616,12 @@ export function apply(ctx) {
             "术语歧义门:feature `" + armed + "` 已武装(.gate-armed)但未清歧义(缺 ambiguity-cleared)。先在 docs/domain/GLOSSARY.md 定义本 feature 触及的每个领域术语并写 ambiguity-cleared,再写产品代码。",
         };
       }
-      // Branch 2 — advisory reminder: implementation boundary. Uses flowEntered
-      // (active OR stale), not flowActive, so a long session's expired marker
-      // does not silently drop this reminder (FB-20260805-003).
+      // Branch 2 — advisory reminder: implementation boundary. Orchestrator
+      // only: a subagent IS the feature-worker, so "交给 feature-worker" is
+      // nonsense for it (Claude FB-20260805-003: 22 次 100% 打错人). Uses
+      // flowEntered (active OR stale), not flowActive, so a long session's
+      // expired marker does not silently drop this reminder.
+      if (isSubagent(exec)) return next();
       if (!(await flowEntered(exec))) return next();
       if (await hasEntry(cwd, "ai-nseos/state/.impl-boundary-ack")) return next();
       return {

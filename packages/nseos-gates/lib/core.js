@@ -172,6 +172,13 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
     if (typeof review.head_sha !== "string" || review.head_sha.trim() === "") gaps.push("review 缺 head_sha(凭据必须绑定代码)");
     else if (currentHead !== undefined && review.head_sha.trim().toLowerCase() !== currentHead) gaps.push("review 的 head_sha 与当前 HEAD 不符(证据已过期,需重评)");
     if (review.independent === undefined) gaps.push("review 缺 independent 字段(自审 false / 独立 true 必须写明)");
+    // 必答(MISSING_TEST_EVIDENCE): review.note must state test-green + negative
+    // control. This is a "did you at least say it" check, NOT a "is it true"
+    // check — the truth is the independent reviewer's job, not the gate's.
+    const note = typeof review.note === "string" ? review.note : "";
+    if (!/(?:测试|test|负控制|negative\s*control|变异|mutation)/i.test(note)) {
+      gaps.push("review.note 缺测试绿 + 关键负控制证据(必答:写明测试怎么绿的、哪个负控制/变异让它转红过)");
+    }
   }
   if (docAdopted) {
     const doc = credential.doc;
