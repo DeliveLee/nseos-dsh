@@ -150,6 +150,51 @@ export function apply(ctx) {
   // Prod-schema scan: fail-loud on ORM auto-sync markers. Returns an object
   // { finding } (matched pattern + file) or { unknown } (a candidate could not
   // be read) or {} (clean). "unknown" is a deny, never a silent allow.
+  function homeDir() {
+    try {
+      if (typeof process !== "undefined" && process.getBuiltinModule) {
+        return process.getBuiltinModule("node:os").homedir();
+      }
+      if (typeof process !== "undefined" && process.env && process.env.HOME) return process.env.HOME;
+    } catch (e) {
+      /* fall through */
+    }
+    return undefined;
+  }
+
+  // Obsidian vault path: env NSEOS_VAULT, else ~/.dsh/ai-nseos/vault-path (one line).
+  async function vaultPath() {
+    try {
+      if (typeof process !== "undefined" && process.env && process.env.NSEOS_VAULT) return process.env.NSEOS_VAULT;
+      const home = homeDir();
+      if (!home) return undefined;
+      const text = await safeRead(await fs.resolve(home + "/.dsh/ai-nseos/vault-path"));
+      return text && text.trim() ? text.trim() : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  // Obsidian query pointer: list the vault root, surface project-named folders.
+  // Progressive disclosure — names only, never note content.
+  async function vaultPointer(cwd) {
+    try {
+      const vault = await vaultPath();
+      if (!vault) return "";
+      const vaultDir = await fs.resolve(vault);
+      const entries = await fs.listDir(vaultDir);
+      const project = cwd ? String(cwd).split("/").pop() : "";
+      const hits = entries
+        .filter((e) => e.type === "directory" && project && e.name.toLowerCase().includes(project.toLowerCase()))
+        .slice(0, 8)
+        .map((e) => e.name);
+      if (hits.length === 0) return "";
+      return "\nObsidian vault 配置在 " + vault + ";与本项目相关的历史目录:" + hits.join(" / ") + "。要看历史决策/发布/知识记录,用 grep/read 在 vault 里按关键词搜。";
+    } catch (e) {
+      return "";
+    }
+  }
+
   async function prodSchemaScan(cwd) {
     try {
       for (const rel of PROD_SCHEMA_CANDIDATES) {
@@ -189,6 +234,7 @@ export function apply(ctx) {
         if (await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md")) {
           extra += "\n读 ai-nseos/PROJECT_PROFILE.md 拿治理详情、Always/Ask/Never 与 Progress source(进度真源)。";
         }
+        extra += await vaultPointer(cwd);
       }
       agent.inject({
         content: [{

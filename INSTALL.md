@@ -29,6 +29,21 @@ cp -R <repo>/preset ~/.dsh/.agent-presets/nseos
 - 业务仓库里未进流程时调非 `nseos-*` 技能会被门禁 deny(带原因);
 - release 类 bash(如 `git push`)未进流程会被 deny。
 
+## 3.5 配置 Obsidian vault(可选,用于历史查询 + 知识沉淀)
+
+门禁包会在 session-start 时查 vault 并注入「相关历史目录」指针,`nseos-knowledge` 也用它写 note。两种配置方式,任选其一:
+
+```bash
+# 方式 A:环境变量
+export NSEOS_VAULT="$HOME/Documents/ObsidianVault"
+
+# 方式 B:配置文件(一行路径)
+mkdir -p ~/.dsh/ai-nseos
+echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
+```
+
+> 未配置则跳过 vault 查询与沉淀提醒,不影响其它能力。
+
 ## 4. 更新
 
 本仓是「源 + 分发」一体:
