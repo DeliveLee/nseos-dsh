@@ -175,21 +175,38 @@ export function apply(ctx) {
     }
   }
 
-  // Obsidian query pointer: list the vault root, surface project-named folders.
-  // Progressive disclosure — names only, never note content.
+  // Obsidian query pointer: surface the vault's knowledge-base dirs + any
+  // project-named folder under <kb>/Projects/. Progressive disclosure — names
+  // only, never note content.
   async function vaultPointer(cwd) {
     try {
       const vault = await vaultPath();
       if (!vault) return "";
       const vaultDir = await fs.resolve(vault);
-      const entries = await fs.listDir(vaultDir);
+      const top = await fs.listDir(vaultDir);
+      const kbDirs = top.filter((e) => e.type === "directory" && !e.name.startsWith(".")).slice(0, 4).map((e) => e.name);
+      if (kbDirs.length === 0) return "";
       const project = cwd ? String(cwd).split("/").pop() : "";
-      const hits = entries
-        .filter((e) => e.type === "directory" && project && e.name.toLowerCase().includes(project.toLowerCase()))
-        .slice(0, 8)
-        .map((e) => e.name);
-      if (hits.length === 0) return "";
-      return "\nObsidian vault 配置在 " + vault + ";与本项目相关的历史目录:" + hits.join(" / ") + "。要看历史决策/发布/知识记录,用 grep/read 在 vault 里按关键词搜。";
+      const projectHits = [];
+      if (project) {
+        for (const kb of kbDirs) {
+          try {
+            const projectsTarget = await fs.resolve(vault + "/" + kb + "/Projects");
+            const pEntries = await fs.listDir(projectsTarget);
+            for (const p of pEntries) {
+              const name = p.name;
+              if (name.startsWith(".") || name.includes(".bak")) continue;
+              if (name.toLowerCase().includes(project.toLowerCase())) {
+                projectHits.push(kb + "/Projects/" + name);
+              }
+            }
+          } catch (e) {
+            // no Projects subfolder under this kb dir
+          }
+        }
+      }
+      const hitLine = projectHits.length ? "\n与本项目相关的历史笔记:" + projectHits.slice(0, 6).join(" / ") : "";
+      return "\nObsidian vault 配置在 " + vault + ";知识库目录:" + kbDirs.join(" / ") + hitLine + "。要看历史决策/发布/知识记录,用 grep/read 在 vault 里按项目名/关键词搜。";
     } catch (e) {
       return "";
     }
