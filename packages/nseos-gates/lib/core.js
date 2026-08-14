@@ -154,8 +154,10 @@ export function releaseGaps({ initd, flowActive, prodSchema }) {
 // the current HEAD and repo state. Faithful port of the Claude release-cred
 // gate (RELEASE.md): review/doc/prod_schema each bind to head_sha; missing
 // evidence or a moved HEAD is a gap. `independent:false` is NOT a gap — it
-// means self-review, which Claude surfaces as a one-time "ask" so self-review
-// is never silently packaged as independent (askIndependent).
+// means self-review. It is surfaced as a DENY (selfReview), never a silent pass
+// and never an "ask": DSH's `never` approval policy turns "ask" into a
+// reason-less "用户拒绝了 bash", which hides WHY the release was blocked and
+// wedges the model (it cannot see "派独立评审 → independent=true 就解锁").
 export function releaseCredentialCheck(credential, { currentHead, docAdopted, prodSchemaFinding }) {
   const gaps = [];
   if (currentHead === undefined) {
@@ -163,7 +165,7 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
   }
   if (credential === undefined || credential === null || typeof credential !== "object" || Array.isArray(credential)) {
     gaps.push("缺 release 凭据(ai-nseos/state/.release-ready.json,含 review/doc/prod_schema)");
-    return { gaps, askIndependent: false };
+    return { gaps, selfReview: false };
   }
   const review = credential.review;
   if (review === undefined || review === null) {
@@ -192,8 +194,8 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
     else if (typeof ps.head_sha !== "string" || ps.head_sha.trim() === "") gaps.push("prod_schema 缺 head_sha");
     else if (currentHead !== undefined && ps.head_sha.trim().toLowerCase() !== currentHead) gaps.push("prod_schema 的 head_sha 与当前 HEAD 不符");
   }
-  const askIndependent = gaps.length === 0 && review !== undefined && review !== null && review.independent === false;
-  return { gaps, askIndependent };
+  const selfReview = gaps.length === 0 && review !== undefined && review !== null && review.independent === false;
+  return { gaps, selfReview };
 }
 
 // ORM auto-sync markers that can silently alter a production schema. A release

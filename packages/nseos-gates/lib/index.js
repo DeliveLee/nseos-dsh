@@ -520,22 +520,26 @@ export function apply(ctx) {
       // each bound to head_sha. Only evaluated once the session is in-flow; a
       // missing/stale credential is aggregated into the same single deny.
       let credGaps = [];
-      let askIndependent = false;
+      let selfReview = false;
       if (initd && active) {
         const cred = await readReleaseCredential(cwd);
         const currentHead = await gitHead(cwd);
         const docAdopted = await hasEntry(cwd, "docs/domain");
         const r = releaseCredentialCheck(cred, { currentHead, docAdopted, prodSchemaFinding: scan.finding !== undefined });
         credGaps = r.gaps;
-        askIndependent = r.askIndependent;
+        selfReview = r.selfReview;
       }
       if (initd && active && prodSchemaGap === undefined && credGaps.length === 0) {
-        if (askIndependent) {
-          // Self-review (independent:false) is not silently packaged as reviewed:
-          // surface one human confirmation, exactly as Claude does.
+        if (selfReview) {
+          // Self-review (independent:false) must never be silently packaged as
+          // reviewed. Return a DENY (not "ask"): under DSH's "never" approval
+          // policy, "ask" degrades to a reason-less "用户拒绝了 bash", hiding
+          // WHY and wedging the model. A deny reason always reaches the model,
+          // so it can self-resolve (派独立评审 → independent=true) or ask the
+          // human, without waiting for the policy to change.
           return {
-            kind: "ask",
-            reason: "release 凭据的 review.independent=false(自审)。自审不能静默冒充独立评审,请人类确认一次再放行。",
+            kind: "deny",
+            reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
           };
         }
         return next();

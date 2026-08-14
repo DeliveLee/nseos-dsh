@@ -53,6 +53,10 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.7.2 — 2026-08-14 自审(independent=false)从 ask 改为 deny+理由
+
+- action-gate 的 `review.independent=false`(自审) 由 `{kind:"ask"}` 改为 `{kind:"deny"}` 并带两条解法。原因:DSH 的 `never` 审批策略会把「ask」转成一句无理由的「用户拒绝了 bash」,模型的 release 被卡死却看不到「自审→派独立评审→independent=true 就解锁」。deny 的理由永远回到模型眼前,它能自解,不必等你改策略(现场:某业务仓库「继续开发AI功能交接会话」卡住 30 分钟)。
+
 ### v0.7.1 — 2026-08-14 会话小结 = 账本投影,不是第二份散文真源
 
 - progress-gate steer 文案:收口时走 `nseos-knowledge` 写 Obsidian 小结(Updated/Why/Pending),并明说 **`Pending` 直接从 TASK_LEDGER/PROGRESS_MANIFEST 投影**,不得另写散文真源。
