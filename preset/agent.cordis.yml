@@ -45,6 +45,16 @@
   config:
     maxBytes: 65536
 
+# ── nseos gates ─────────────────────────────────────────────────────────────
+
+# The AI-NSEOS delivery-governance gates: flow-marker predicate + skill/doc/
+# action/progress gates. They LISTEN to host events (`tools/pre-execute`,
+# `agent/turn-stopping`) and publish no service, so they sit loose like the shell
+# and job tools. Every gate is fail-open: an error degrades to allow, never to a
+# swallowed deny.
+- id: nseos-gates
+  name: '@deliveli/nseos-gates'
+
 # ── shell ───────────────────────────────────────────────────────────────────
 
 # `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
