@@ -199,6 +199,56 @@ function splitSegments(cmd) {
   return segs;
 }
 
+// HEAD/cwd-changing git subcommands. Anything after one of these cannot be
+// judged from the pre-execution HEAD (Claude HEAD_CHANGING_GIT_SUBS).
+const HEAD_CHANGING_GIT_SUBS = new Set(["switch", "checkout"]);
+
+// Is this segment a release-class VERB, regardless of which repo/branch it
+// targets? Verb-only (no HEAD/refspec/cwd), used by the ambiguity check which
+// must decide before the target is knowable. Port of Claude `_release_shaped`.
+function releaseShaped(seg) {
+  const tokens = tokenize(seg);
+  const prog = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+  if (!prog) return false;
+  const base = prog.split("/").pop();
+  const args = programArgs(tokens);
+  if (base === "git") {
+    const pos = positional(args, GIT_VALUE_FLAGS);
+    return pos.length > 0 && (pos[0] === "push" || pos[0] === "merge");
+  }
+  if (base === "gh") {
+    const pos = positional(args, GH_VALUE_FLAGS);
+    return (pos[0] === "pr" && pos[1] === "merge") || (pos[0] === "workflow" && pos[1] === "run");
+  }
+  if (base === "docker" || base === "docker-compose" || /docker-compose$/.test(base)) {
+    return tokens.includes("up");
+  }
+  return false;
+}
+
+// A segment that changes cwd/HEAD BEFORE a later release-shaped segment makes
+// the release target unknowable at pre-execution time: `git checkout main &&
+// git push` is a trunk push, but the pre-execution HEAD is the feature branch.
+// We do NOT simulate the future shell — we report which segment moved the
+// ground and ask for a split. Port of Claude `_target_ambiguity`.
+export function targetAmbiguity(cmd) {
+  let moved;
+  for (const seg of splitSegments(cmd)) {
+    const tokens = tokenize(seg);
+    const prog = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+    if (!prog) continue;
+    if (moved && releaseShaped(seg)) return moved;
+    const base = prog.split("/").pop();
+    const args = programArgs(tokens);
+    if (base === "cd") moved = "`cd`(切换工作目录)";
+    else if (base === "git") {
+      const pos = positional(args, GIT_VALUE_FLAGS);
+      if (pos.length > 0 && HEAD_CHANGING_GIT_SUBS.has(pos[0])) moved = "`git " + pos[0] + "`(切换分支 / HEAD)";
+    }
+  }
+  return undefined;
+}
+
 // Returns a human-readable reason when the bash command is release/deploy
 // class, or undefined when it is ordinary feature-branch/local work.
 // `head` is the CURRENT branch name (from .git/HEAD); it is what makes the

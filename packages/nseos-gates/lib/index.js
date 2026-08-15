@@ -7,8 +7,7 @@
 // silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -23,32 +22,6 @@ function gateWarn(where, err) {
     }
   } catch (e) {
     /* never throw from the alerter */
-  }
-}
-
-// Read-only reviewer: no file writes, no shell, no recursive delegation. The
-// role persona arrives in the prompt; this provider only enforces the boundary.
-const READ_ONLY_PERSONA =
-  "You are a read-only independent reviewer subagent. You may read, search, and reason, but you must not write or edit files, run shell commands, or delegate further. Return your analysis as text.";
-const READ_ONLY_TOOL_FILTER = {
-  deny: ["write", "edit", "bash", "subagent", "subagent_fork", "workflow", "ralph", "todo_write"],
-};
-
-class NseosReviewerProvider {
-  name;
-  capabilities = { outputSchema: false, depthLimit: true, toolFilter: true, persona: true };
-  inheritsParentContext = false;
-  constructor(name) {
-    this.name = name;
-  }
-  start(request) {
-    if (request.persona === undefined) request.persona = READ_ONLY_PERSONA;
-    request.toolFilter = READ_ONLY_TOOL_FILTER;
-    request.maxDepth = 1;
-    return startInProcessRun(request, {});
-  }
-  prepareContinuable() {
-    return Promise.resolve({});
   }
 }
 
@@ -70,14 +43,6 @@ export function apply(ctx) {
   // Either may be undefined in a minimal composition; the gate then fails closed
   // on release/deploy rather than silently allowing.
   const approval = ctx.get("approval");
-
-  // Register the read-only reviewer subagent backend. The spawn backend already
-  // runs a child with zero parent context; this provider additionally removes
-  // every write/delegation tool so the reviewer cannot mutate or recurse.
-  const subagents = ctx.get("subagents");
-  if (subagents !== undefined) {
-    subagents.registerProvider(new NseosReviewerProvider("nseos-reviewer"));
-  }
 
   function cwdOf(exec) {
     const c = exec && exec.agent && exec.agent.session && exec.agent.session.header;
@@ -665,6 +630,17 @@ export function apply(ctx) {
       if (typeof cmd !== "string") return next();
       const cwd = cwdOf(exec);
       const isDeploy = DEPLOY_PATTERNS.some((re) => re.test(cmd));
+      // Target ambiguity (Claude _target_ambiguity): a cd/switch/checkout BEFORE
+      // a release-shaped segment makes the release target unknowable at
+      // pre-execution time (`git checkout main && git push`). Deny asking to
+      // split — we do NOT simulate the future shell.
+      const ambiguity = targetAmbiguity(cmd);
+      if (ambiguity !== undefined) {
+        return {
+          kind: "deny",
+          reason: "release/deploy 类命令里 " + ambiguity + " 之后还有发布/部署动作,门禁在执行前无法判定它的实际目标(当前 HEAD/工作目录已不是执行时的状态)。请拆成两次调用:先执行 " + ambiguity + ",再单独执行后面的发布/部署命令。",
+        };
+      }
       // Branch-aware classification: `git merge feature/x` is a release only
       // when the current branch is trunk; a bare `git push` is a release only
       // on trunk. head=undefined means "branch unknown" → conservative for the

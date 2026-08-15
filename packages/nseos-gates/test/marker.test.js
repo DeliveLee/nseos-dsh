@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -133,6 +133,18 @@ test("classifyReleaseBash: gh pr merge / release create / deploy-workflow vs lin
   assert.ok(classifyReleaseBash("gh -R owner/repo pr merge 7"), "gh -R pr merge");
   // `gh workflow run --repo x deploy.yml` — value-flag AFTER subcommand
   assert.ok(classifyReleaseBash("gh workflow run --repo x deploy.yml"), "gh workflow run --repo deploy");
+});
+
+test("targetAmbiguity: cd/switch/checkout before a release-shaped segment is ambiguous (must split)", () => {
+  // HEAD/cwd changes before a release make the target unknowable at pre-exec time
+  assert.ok(targetAmbiguity("git checkout main && git push"), "checkout then push");
+  assert.ok(targetAmbiguity("git switch main && git push origin main"), "switch then push");
+  assert.ok(targetAmbiguity("cd /x && git push origin main"), "cd then push");
+  // no release-shaped segment → not ambiguous
+  assert.strictEqual(targetAmbiguity("git checkout main"), undefined, "checkout alone");
+  assert.strictEqual(targetAmbiguity("cd /x"), undefined, "cd alone");
+  // release with no prior HEAD change → not ambiguous
+  assert.strictEqual(targetAmbiguity("git push origin main"), undefined, "plain push");
 });
 
 test("classifyReleaseBash: docker compose prod signal is release, plain compose is not", () => {
