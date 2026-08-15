@@ -68,7 +68,7 @@ test("isNseosSkill matches only the nseos- prefix", () => {
 });
 
 test("classifyReleaseBash: trunk push / multi-ref / version-tag are release, feature-branch is not", () => {
-  // trunk pushes (release-class)
+  // trunk pushes (release-class) — explicit trunk refspec needs no head
   assert.ok(classifyReleaseBash("git push origin main"), "trunk main");
   assert.ok(classifyReleaseBash("git push origin master"), "trunk master");
   assert.ok(classifyReleaseBash("git push origin production"), "trunk production");
@@ -80,8 +80,6 @@ test("classifyReleaseBash: trunk push / multi-ref / version-tag are release, fea
   // version-tag pushes
   assert.ok(classifyReleaseBash("git push origin v1.2.3"), "version tag");
   assert.ok(classifyReleaseBash("git push origin refs/tags/v1"), "tag refspec");
-  // bare push is conservatively release-class (branch unknowable)
-  assert.ok(classifyReleaseBash("git push"), "bare push");
   // feature-branch push is NOT release-class (this is the over-blocking bug)
   assert.strictEqual(classifyReleaseBash("git push origin feature/foo"), undefined);
   assert.strictEqual(classifyReleaseBash("git push origin fix/bar"), undefined);
@@ -89,11 +87,36 @@ test("classifyReleaseBash: trunk push / multi-ref / version-tag are release, fea
   assert.strictEqual(classifyReleaseBash("git commit -m x"), undefined);
   assert.strictEqual(classifyReleaseBash("git status"), undefined);
   assert.strictEqual(classifyReleaseBash("git checkout -b feature/x"), undefined);
+  // local `git tag` alone is NOT a release — only the tag PUSH is (Claude parity)
+  assert.strictEqual(classifyReleaseBash("git tag v1.0.0"), undefined, "local git tag is not a release");
   // value-flags: `git -C /tmp/x push` reads subcommand "push", not "/tmp/x"
   assert.ok(classifyReleaseBash("git -C /tmp/x push origin main"), "git -C push to trunk");
+  assert.ok(classifyReleaseBash("git --git-dir=/x push origin main"), "git --git-dir= push to trunk");
   // non-git programs
   assert.strictEqual(classifyReleaseBash("npm test"), undefined);
   assert.strictEqual(classifyReleaseBash("node --version"), undefined);
+});
+
+test("classifyReleaseBash is branch-aware: merge/bare-push/HEAD only release on trunk (head param)", () => {
+  const main = "main";
+  const feat = "feature/foo";
+  // merge: release only when the CURRENT branch is trunk
+  assert.ok(classifyReleaseBash("git merge feature/x", main), "merge INTO trunk is a release");
+  assert.strictEqual(classifyReleaseBash("git merge main", feat), undefined, "merge main into feature is a sync, not a release");
+  // bare push: release only on trunk
+  assert.ok(classifyReleaseBash("git push", main), "bare push on trunk");
+  assert.strictEqual(classifyReleaseBash("git push", feat), undefined, "bare push on feature is NOT release");
+  // remote-only push (`git push origin`) is a bare push — release only on trunk
+  assert.ok(classifyReleaseBash("git push origin", main), "remote-only push on trunk");
+  assert.strictEqual(classifyReleaseBash("git push origin", feat), undefined, "remote-only push on feature");
+  // HEAD resolution: `git push origin HEAD` on trunk
+  assert.ok(classifyReleaseBash("git push origin HEAD", main), "HEAD resolves to current trunk branch");
+  assert.strictEqual(classifyReleaseBash("git push origin HEAD", feat), undefined, "HEAD on feature is not trunk");
+  // refs/heads/ prefix stripped: `HEAD:refs/heads/main`
+  assert.ok(classifyReleaseBash("git push origin HEAD:refs/heads/main", feat), "refs/heads/main stripped to trunk");
+  assert.ok(classifyReleaseBash("git push origin feature/foo:refs/heads/main", feat), "src:dst → dst trunk");
+  // --delete is a flag, NOT a value-flag: `git push origin --delete main` still names main
+  assert.ok(classifyReleaseBash("git push origin --delete main", feat), "--delete main deletes the trunk");
 });
 
 test("classifyReleaseBash: gh pr merge / release create / deploy-workflow vs lint workflow", () => {
@@ -104,8 +127,12 @@ test("classifyReleaseBash: gh pr merge / release create / deploy-workflow vs lin
   assert.ok(classifyReleaseBash("gh workflow run ship-it"), "ship-it workflow");
   assert.strictEqual(classifyReleaseBash("gh workflow run lint.yml"), undefined, "lint workflow is NOT release");
   assert.strictEqual(classifyReleaseBash("gh workflow run test.yml"), undefined, "test workflow is NOT release");
+  // bare `gh workflow run` (no name) is conservatively release-class (Claude parity)
+  assert.ok(classifyReleaseBash("gh workflow run"), "bare workflow run");
   // `gh -R owner/repo pr merge` — value-flag parse
   assert.ok(classifyReleaseBash("gh -R owner/repo pr merge 7"), "gh -R pr merge");
+  // `gh workflow run --repo x deploy.yml` — value-flag AFTER subcommand
+  assert.ok(classifyReleaseBash("gh workflow run --repo x deploy.yml"), "gh workflow run --repo deploy");
 });
 
 test("classifyReleaseBash: docker compose prod signal is release, plain compose is not", () => {
@@ -120,7 +147,7 @@ test("classifyReleaseBash: docker compose prod signal is release, plain compose 
 test("classifyReleaseBash: version-tag requires v-prefix; shell chaining still classifies the release segment", () => {
   // unprefixed "2.0" / "2.0-hotfix" are branch names, not version tags
   assert.strictEqual(classifyReleaseBash("git push origin 2.0-hotfix"), undefined, "hotfix branch is NOT a version tag");
-  assert.strictEqual(classifyReleaseBash("git push origin v1.2.3"), "git push 版本标签 v1.2.3", "v-prefixed tag still caught");
+  assert.strictEqual(classifyReleaseBash("git push origin v1.2.3"), "git push 标签 v1.2.3", "v-prefixed tag still caught");
   // shell chaining: the release segment after && is still caught
   assert.ok(classifyReleaseBash("git status && git push origin main"), "trailing trunk push after && must be caught");
   assert.ok(classifyReleaseBash("git push origin main && echo done"), "leading trunk push");

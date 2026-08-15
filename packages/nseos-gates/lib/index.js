@@ -368,24 +368,43 @@ export function apply(ctx) {
     return undefined;
   }
 
+  // Resolve the actual git directory, following the `gitdir:` pointer when `.git`
+  // is a FILE (linked worktree) rather than a directory. Returns the git dir
+  // path, or undefined. This is what makes HEAD reads work in worktrees.
+  async function gitDir(cwd) {
+    try {
+      const dotGit = await fs.resolve(".git", cwd ? { cwd } : undefined);
+      const content = await safeRead(dotGit);
+      if (content !== undefined) {
+        const m = content.trim().match(/^gitdir:\s*(.+?)\s*$/);
+        if (m) return m[1].trim(); // linked worktree → actual gitdir
+      }
+      return dotGit;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
   // Read the current git HEAD (40-hex, lowercased) via .git/HEAD → loose ref →
   // packed-refs. fs-only so the gate never shells out; returns undefined when
   // the HEAD cannot be determined (the credential check then fails loud).
   async function gitHead(cwd) {
     try {
-      const head = await safeRead(await fs.resolve(".git/HEAD", cwd ? { cwd } : undefined));
+      const dir = await gitDir(cwd);
+      if (dir === undefined) return undefined;
+      const head = await safeRead(await fs.resolve(dir + "/HEAD"));
       if (head === undefined) return undefined;
       const t = head.trim();
       if (/^[0-9a-f]{40}$/i.test(t)) return t.toLowerCase(); // detached HEAD
       const m = t.match(/^ref:\s*(.+?)\s*$/);
       if (!m) return undefined;
       const ref = m[1];
-      const loose = await safeRead(await fs.resolve(".git/" + ref, cwd ? { cwd } : undefined));
+      const loose = await safeRead(await fs.resolve(dir + "/" + ref));
       if (loose !== undefined) {
         const s = loose.trim();
         if (/^[0-9a-f]{40}$/i.test(s)) return s.toLowerCase();
       }
-      const packed = await safeRead(await fs.resolve(".git/packed-refs", cwd ? { cwd } : undefined));
+      const packed = await safeRead(await fs.resolve(dir + "/packed-refs"));
       if (packed !== undefined) {
         for (const line of packed.split("\n")) {
           if (line[0] === "#" || line[0] === "^") continue;
@@ -394,6 +413,22 @@ export function apply(ctx) {
         }
       }
       return undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  // Current branch NAME (e.g. "main"), used to make the release classifier
+  // branch-aware. undefined = detached HEAD or unreadable. Follows the gitdir
+  // pointer so it works in linked worktrees.
+  async function gitBranch(cwd) {
+    try {
+      const dir = await gitDir(cwd);
+      if (dir === undefined) return undefined;
+      const head = await safeRead(await fs.resolve(dir + "/HEAD"));
+      if (head === undefined) return undefined;
+      const m = head.trim().match(/^ref:\s*refs\/heads\/(.+?)\s*$/);
+      return m ? m[1] : undefined;
     } catch (e) {
       return undefined;
     }
@@ -626,10 +661,15 @@ export function apply(ctx) {
       if (exec.name !== "bash") return next();
       const cmd = exec.arguments && exec.arguments.command;
       if (typeof cmd !== "string") return next();
-      const releaseReason = classifyReleaseBash(cmd);
-      const isDeploy = DEPLOY_PATTERNS.some((re) => re.test(cmd));
-      if (releaseReason === undefined && !isDeploy) return next();
       const cwd = cwdOf(exec);
+      const isDeploy = DEPLOY_PATTERNS.some((re) => re.test(cmd));
+      // Branch-aware classification: `git merge feature/x` is a release only
+      // when the current branch is trunk; a bare `git push` is a release only
+      // on trunk. head=undefined means "branch unknown" → conservative for the
+      // explicit forms, permissive for the bare/merge forms (matching Claude).
+      const head = await gitBranch(cwd);
+      const releaseReason = classifyReleaseBash(cmd, head);
+      if (releaseReason === undefined && !isDeploy) return next();
       const isGit = await hasEntry(cwd, ".git");
       if (isGit === false) return next(); // 非 git 目录:无可推之物
       if (isGit !== true) {

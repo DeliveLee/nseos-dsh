@@ -67,54 +67,92 @@ function programArgs(tokens) {
   return tokens.slice(i);
 }
 
-function classifyGitPush(args) {
-  // Multi-ref flags publish objects the current credential never covered.
-  if (args.some((a) => PUSH_MULTIREF_FLAGS.has(a))) {
-    return "git push 多 ref(--mirror/--all/--tags/--follow-tags)";
+// Non-flag args, with value-taking flags consuming their value. Handles both
+// `--flag value` and `--flag=value`; a non-value flag (e.g. `--delete`, `-f`,
+// `-u`) is skipped WITHOUT consuming the next token. Faithful port of Claude's
+// `_positional`.
+function positional(tokens, valueFlags) {
+  const out = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t.startsWith("-")) {
+      if (t.includes("=")) i += 1;        // --flag=value
+      else if (valueFlags.has(t)) i += 2; // --flag value
+      else i += 1;
+      continue;
+    }
+    out.push(t);
+    i += 1;
   }
-  // Collect positional refspecs (skip flags and their value token).
-  const refspecs = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("-")) { i++; continue; }
-    refspecs.push(a);
-  }
-  // A bare `git push` (no refspec) is conservatively release-class: it pushes
-  // the current branch, which may be trunk, and the gate cannot see it.
-  if (refspecs.length === 0) return "git push(裸推送,无法判定分支,按主干从严)";
-  for (const r of refspecs) {
-    if (TAG_REFSPEC.test(r)) return "git push 标签 refspec " + r;
-    const branch = r.includes(":") ? r.split(":").pop() : r.split("/").pop();
-    if (TRUNK_BRANCHES.has(branch)) return "git push 到主干 " + branch;
-    if (VERSION_TAG.test(branch)) return "git push 版本标签 " + branch;
-  }
-  return undefined; // feature-branch push → not release-class
+  return out;
 }
 
-function classifyGit(args) {
-  let i = 0;
-  while (i < args.length && GIT_VALUE_FLAGS.has(args[i])) i += 2;
-  const sub = args[i];
-  if (sub === "push") return classifyGitPush(args.slice(i + 1));
-  if (sub === "tag") return "git tag(打/推标签属发布)";
-  if (sub === "merge") {
-    const trunk = args.slice(i + 1).filter((a) => !a.startsWith("-")).find((a) => TRUNK_BRANCHES.has(a));
-    return trunk ? "git merge 到主干 " + trunk : undefined;
+// Refspec destination branch names (remote arg dropped, HEAD resolved, force
+// `+` and refs/heads/ stripped). Faithful port of Claude's `_push_targets`.
+function pushTargets(positionalAfterPush, head) {
+  const refs = positionalAfterPush.slice(1); // first positional is the remote
+  const out = [];
+  for (let tok of refs) {
+    if (tok.startsWith("+")) tok = tok.slice(1);
+    let dest = tok.includes(":") ? tok.split(":").pop() : tok;
+    if (dest.startsWith("refs/heads/")) dest = dest.slice("refs/heads/".length);
+    if (dest === "HEAD") dest = head || "";
+    if (dest) out.push(dest);
+  }
+  return out;
+}
+
+// Raw destination refs WITHOUT refs/heads stripping or HEAD resolution — tag
+// detection needs to see `refs/tags/...` intact. Port of Claude's `_push_refs`.
+function pushRefs(positionalAfterPush) {
+  const out = [];
+  for (let tok of positionalAfterPush.slice(1)) {
+    if (tok.startsWith("+")) tok = tok.slice(1);
+    const dest = tok.includes(":") ? tok.split(":").pop() : tok;
+    if (dest) out.push(dest);
+  }
+  return out;
+}
+
+function classifyGit(args, head) {
+  const pos = positional(args, GIT_VALUE_FLAGS);
+  if (!pos.length) return undefined;
+  const sub = pos[0];
+  if (sub === "push") {
+    for (const flag of PUSH_MULTIREF_FLAGS) {
+      if (args.includes(flag)) return "git push 多 ref(" + flag + ")";
+    }
+    const targets = pushTargets(pos.slice(1), head);
+    const trunk = targets.find((t) => TRUNK_BRANCHES.has(t));
+    if (trunk) return "git push 到主干 " + trunk;
+    const tags = pushRefs(pos.slice(1)).filter((t) => TAG_REFSPEC.test(t) || VERSION_TAG.test(t));
+    if (tags.length) return "git push 标签 " + tags[0];
+    // Bare push (no refspec): release only when the CURRENT branch is trunk.
+    if (targets.length === 0 && head && TRUNK_BRANCHES.has(head)) {
+      return "在主干 " + head + " 上 git push(裸推送)";
+    }
+    return undefined;
+  }
+  // `git merge` is a release only when the CURRENT branch is trunk (merging a
+  // feature INTO trunk); `git merge main` on a feature branch is a sync, not a
+  // release. `git tag` alone is NOT flagged — only the tag PUSH is (via
+  // --tags / `push v1.2.3` / refs/tags/ above).
+  if (sub === "merge" && head && TRUNK_BRANCHES.has(head)) {
+    return "在主干 " + head + " 上 git merge";
   }
   return undefined;
 }
 
 function classifyGh(args) {
-  let i = 0;
-  while (i < args.length && GH_VALUE_FLAGS.has(args[i])) i += 2;
-  const sub = args[i];
-  if (sub === "pr" && args[i + 1] === "merge") return "gh pr merge(合并到受保护分支)";
-  if (sub === "release" && args[i + 1] === "create") return "gh release create(发版)";
-  if (sub === "workflow" && args[i + 1] === "run") {
-    const name = args[i + 2];
-    // Only deploy-shaped workflow names are release-class; lint/test/CI are not.
-    return name && DEPLOYISH_WORKFLOW.test(name) ? "gh workflow run 部署型流水线 " + name : undefined;
+  const pos = positional(args, GH_VALUE_FLAGS);
+  if (pos[0] === "pr" && pos[1] === "merge") return "gh pr merge(合并 PR)";
+  if (pos[0] === "workflow" && pos[1] === "run") {
+    const name = pos[2] || "";
+    if (!name) return "gh workflow run(未指定 workflow,保守按发布处理)";
+    return DEPLOYISH_WORKFLOW.test(name) ? "gh workflow run 部署型流水线 " + name : undefined;
   }
+  if (pos[0] === "release" && pos[1] === "create") return "gh release create(发版)";
   return undefined;
 }
 
@@ -163,7 +201,10 @@ function splitSegments(cmd) {
 
 // Returns a human-readable reason when the bash command is release/deploy
 // class, or undefined when it is ordinary feature-branch/local work.
-export function classifyReleaseBash(cmd) {
+// `head` is the CURRENT branch name (from .git/HEAD); it is what makes the
+// classifier "branch-aware" — `git merge feature/x` is a release only when
+// head is trunk, and a bare `git push` is a release only on trunk.
+export function classifyReleaseBash(cmd, head) {
   if (typeof cmd !== "string" || cmd.trim() === "") return undefined;
   for (const seg of splitSegments(cmd)) {
     const tokens = tokenize(seg);
@@ -172,7 +213,7 @@ export function classifyReleaseBash(cmd) {
     const base = prog.split("/").pop();
     const args = programArgs(tokens);
     let reason;
-    if (base === "git") reason = classifyGit(args);
+    if (base === "git") reason = classifyGit(args, head);
     else if (base === "gh") reason = classifyGh(args);
     else if (base === "docker" || base === "docker-compose" || /docker-compose$/.test(base)) reason = classifyCompose(args);
     if (reason !== undefined) return reason;
