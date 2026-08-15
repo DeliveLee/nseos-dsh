@@ -342,7 +342,19 @@ export function apply(ctx) {
       const content = await safeRead(dotGit);
       if (content !== undefined) {
         const m = content.trim().match(/^gitdir:\s*(.+?)\s*$/);
-        if (m) return m[1].trim(); // linked worktree → actual gitdir
+        if (m) {
+          const target = m[1].trim();
+          // linked worktree / submodule `.git` file → actual gitdir. Absolute
+          // pointers pass through; relative ones (submodule `../.git/modules/x`)
+          // resolve against the directory that holds the `.git` file.
+          if (/^(\/|[A-Za-z]:[\\/])/.test(target)) return target;
+          const base = dotGit.includes("/") ? dotGit.slice(0, dotGit.lastIndexOf("/")) : ".";
+          try {
+            return process.getBuiltinModule("node:path").normalize(base + "/" + target);
+          } catch (e) {
+            return base + "/" + target;
+          }
+        }
       }
       return dotGit;
     } catch (e) {

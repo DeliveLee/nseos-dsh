@@ -32,14 +32,14 @@
 - session 路由 → `agent/session-start` + `agent.inject()`(不用 `systemPrompt.section()`,拿不到按会话上下文)。
 - prompt 路由 → `agent/pre-step`(每人类回合首 step 注入,只注入不 reject)。
 - progress-gate Stop → `agent/turn-stopping` + `ctx.sessionQuery` 自读收口文本 + `agent.steer()` 拦截 + `storageDomain` 预算。
-- 8 agents → `subagents.registerProvider()`;只读 reviewer = provider `start()` 内设 `toolFilter.deny`(write/edit/bash/subagent/…)+ `maxDepth=1`(禁递归)。**修正**:DSH one-shot provider 的 `start()` 不暴露「按 child 设 sandbox mode」的通道(`SubagentStartRequest` 只有 persona/toolFilter/maxDepth/agentOptions,agentOptions 只含 provider/model/maxTokens);沙箱 mode 是「父会话显式 override」沿继承链传递,provider 不能 per-child 覆盖。所以「只读」由 toolFilter 兑现——它是**真机器边界**(被 deny 的工具从子代理 tool 注册表移除、且拒绝执行),不是 prompt 声明;更强的「沙箱级只读」需改 DSH 驱动,属过度实现,已诚实标注为已知限制。
+- 8 agents → 原计划 `subagents.registerProvider()` 只读 provider,但**已撤销**(v0.13.0 终审发现:注册进 registry 却无 `provider: nseos-reviewer` 工具行可达,是死代码)。当前口径:8 个角色是 **prompt 级软指引**——编排者按 route-work 指示先 `read agents/<role>.md`、把 body 作为 `subagent`(spawn)工具的 prompt 前缀;Claude 版 frontmatter `tools:`/`permissionMode:` 的机器只读未迁移(DSH spawn 不消费这些字段,是惰性装饰)。更强的机器只读需给 agent.cordis.yml 加 provider 工具行 + 真接线,留待评估,不属本版。
 - 审批门禁 = `approval.request()`(工具级)+ 合同状态进 Phase 3 + 人类批范围 `userQuestions.ask()`;门禁只用 allow/deny,不用 ask(无 approval 服务时退化为 deny)。
 - `ToolExecution` 无 cwd/分类字段:工具名重键 + `arguments.*` 取参 + `sandboxPolicy.resolve` 推仓库根;orchestrator-vs-subagent 用 `exec.agent` + `agents.requireInitiator()`/`isOwnedBy()`。
 
 ## D4 · 复杂度预算
 
 - **反 Codex 硬不变量(不可越线)**:自建有生命周期的状态组件 ≤ 1(仅 flow-marker:4h 新鲜度/归属/跨会话 deny);**无状态机**(不论语言);无第二个状态文件;**门禁测试 ≤ 100 个 test 块**。其余持久化 JSON(`.release-ready.json` 的 review/doc/prod_schema 凭据、`.gate-armed`/`ambiguity-cleared`/`.impl-boundary-ack`)是**无状态 attestation/ack 标记**——无 TTL、无迁移、无生命周期转换、每次 release 对着当前 HEAD 重新校验,head_sha 不符只报 gap 不回滚;它们不是「有生命周期的状态组件」,不计入本条。
-- **JS 行数预算(诚实重估,v0.13.0)**:原「≤1000 行」在 v0.13.0 精确化 action-gate 后超线(实测 lib 1193 行)。重估为「机器层 JS ≤ 1500 行;纯谓词 `core.js` ≤ 500 行」。行数超的不是状态机逻辑,而是 (a) 精确分类器(移植 Claude `_release_class`,约 130 行,替换原 5 条粗糙正则——这是精度修复不是膨胀);(b) 必要的人类可读 deny/注入文案。**行数是「别过度工程」的代理,不是过度工程本身**——挪目录/删文案不能假装达标,判据是「没有状态机、没有第二个 schema、谓词保持纯函数」。
+- **JS 行数预算(诚实重估,v0.13.0)**:原「≤1000 行」在 v0.13.0 精确化 action-gate 后超线(实测 lib 1347 行 = core.js 515 + index.js 832)。重估为「机器层 JS ≤ 1500 行;纯谓词 `core.js` ≤ 550 行」。行数超的不是状态机逻辑,而是 (a) 精确分类器(忠实移植 Claude `_release_class`/`_push_targets`/`_positional`/`_target_ambiguity`,约 210 行,替换原 5 条粗糙正则——这是精度修复不是膨胀);(b) 必要的人类可读 deny/注入文案。**行数是「别过度工程」的代理,不是过度工程本身**——挪目录/删文案不能假装达标,判据是「没有状态机、没有第二个有生命周期 schema、谓词保持纯函数」。
 - 若未来长出「跨会话恢复 / 迁移 / 回滚」诉求,那是 `goals` 的事,不是本组件的扩展理由(见 `FLOW_MARKER_CONTRACT.md` §7)。
 
 ## D5 · 反 Codex 约束(11 条)

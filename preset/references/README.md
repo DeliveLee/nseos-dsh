@@ -7,7 +7,7 @@
 | Claude 机制(历史) | DSH 等价(当前) |
 |---|---|
 | `~/.claude/hooks/*.py` + `settings.json` 注册 | nseos preset 内 Cordis service/event(`tools/pre-execute` 等) |
-| `AINSEOS_*_GATE=off` 环境变量阀门 | 门禁逃生舱(settings / 权限预设,人类运维,模型不得自关) |
+| `AINSEOS_*_GATE=off` 环境变量阀门 | **未迁移**——DSH 门禁无 env 阀门。人类逃生路径 = `agent.cordis.yml` 里移除 `nseos-gates` 行 + 重启(声明式挂载,天然可逆);`fail-open`(gateWarn + 降级放行)是「出错时的安全网」,不是 kill-switch。 |
 | `CLAUDE.md` / `CLAUDE_PLUGIN_ROOT` | preset persona + `references/` |
 | flow-marker Python CLI | `write` 工具写 marker JSON(见 `FLOW_MARKER_CONTRACT.md`) |
 | worktree / main checkout | workspace(DSH 无 worktree) |

@@ -71,7 +71,7 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 **验证(P3)**:
 - 新增 `test/wiring.test.js`:mock fs/ctx 捕获四个 `tools/pre-execute` handler,证明 skill-gate 真 deny、action-gate 真放行 feature-branch 且真 deny 主干、ledger/doc-gate 真接线。此前接线层 0 覆盖(纯谓词 29 项测试证明「谓词会 deny」,但「门真的 armed」从未被证明)。
-- `package.json` 加 `test` script + 版本 0.13.0;测试 29→34(纯谓词 + 接线)。接线测试在 peer deps 不可解析时 self-skip。
+- `package.json` 加 `test` script + 版本 0.13.0;测试 32 谓词 + 8 接线 = 40。`npm test` 自动建 symlink 到 profile node_modules(接线测试不再 self-skip)。
 
 **尚未落地(见 `GAP_ANALYSIS.md` §七,经两轮对抗评审修正)**:
 - **8 个 agent 的机器强制**(`registerProvider` + 只读工具集/沙箱)——当前只有软指引。

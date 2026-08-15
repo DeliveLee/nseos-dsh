@@ -24,7 +24,9 @@
 
 ## 二、机器层对账(核心差距所在)
 
-### A. 8 个 agent 是死文件(0/8 被加载)—— ❌ 最重
+### A. 8 个 agent 是死文件(0/8 被加载)—— ❌ 最重(现已改软指引)
+
+> **v0.13.0 收口**:8 个 agent 角色卡现为 **prompt 级软指引**(route-work 指示先 read `agents/<role>.md` 再派 spawn 子代理);曾注册的只读 provider(`nseos-reviewer`)经终审发现无工具行可达,已删。Claude 版 frontmatter `tools:`/`permissionMode:` 是惰性装饰(DSH spawn 不消费),机器只读未迁移。本节保留原状描述供溯源。
 
 - `packages/nseos-gates/lib/index.js` 只 `registerProvider(new NseosReviewerProvider("nseos-reviewer"))` **一个** provider,且用硬编码 persona,不读 `preset/agents/*.md`。
 - 其余 7 个角色(architect / domain-knowledge / feature-developer / integration-reviewer / knowledge-curator / product-analyst / security-reviewer)的 `.md` 无任何代码/配置加载。
@@ -70,7 +72,7 @@ Claude 用 `_release_class()`/`_classify()`(TRUNK_BRANCHES / PUSH_MULTIREF_FLAGS
 
 ### G. 复杂度预算超线(违反 D4)❌
 
-- DECISIONS D4 / MIGRATION_PLAN §4:机器层 JS ≤1000 行。实测(v0.13.0 精确化后)core.js 420 + index.js 814 = **1234 行**,已超。对抗评审 C 早就警告「三年后即第二个 Codex 覆辙」;但超的是「精确分类器 + deny 文案」,非状态机逻辑,已在 D4 诚实重估(见 DECISIONS.md)。
+- DECISIONS D4 / MIGRATION_PLAN §4:机器层 JS ≤1000 行。实测(v0.13.0 精确化 + branch-aware + _target_ambiguity 后)core.js 515 + index.js 832 = **1347 行**,已超。对抗评审 C 早就警告「三年后即第二个 Codex 覆辙」;但超的是「精确分类器 + deny 文案」,非状态机逻辑,已在 D4 诚实重估(见 DECISIONS.md)。
 
 ---
 
@@ -193,6 +195,6 @@ Claude 版历史(`Hermes/Projects/nseos.md`)早已建立的标准动作是**「�
 - [x] P1 机器层:**4 个代码级 bug 真关了**(action-gate 精确化 / 修源仓库豁免 bug / 修 prod_schema 死代码 / feedback 每轮提醒)——评审确认有代码有测试、旧正则全仓零残留
 - [~] **8 个 agent 角色卡:从「完全死文件」改为「软指引」**(route-work 指示先 read `agents/<role>.md` 再派子代理)。**诚实标注:这是软指引,不是机器强制**——Claude 版的 `registerProvider` + 只读工具集/沙箱的机器强制仍未做(评审点名:软指引冒充机器实现)。是否补机器强制需另评估,当前是「把空名头变成有文件可读」。
 - [~] **upgrade/stale:是「维护流程里的手动 diff 哨兵验证」(nseos-maintain Step 9),不是机器自动自检**。Claude 的「每回合 stale 自检提醒」在 DSH 无等价物(DSH 无 hook 接线层),这是合理降级,但诚实标注为「手动」。
-- [x] P2:HUMAN_COMMUNICATION 七条压缩版进 persona;reviewer 只读确认为 toolFilter 真机器边界;sandbox 级需改 DSH 驱动=过度实现;D4 硬不变量精确为「有生命周期状态组件 ≤1」
-- [x] P3 第一批:门禁接线层测试(5 块)+ `npm test`(自动建 symlink,不再 self-skip)+ CI + PARITY 标注两层证据
-- [ ] P3 第二批(需真实业务仓会话):PARITY_CHECKLIST 剩余项「故意注入 → 门真 deny → 清除 → 放行」活路径验收;以及接线测试扩展到 humanApprove/prod-schema-unknown/ledger-第3文件/doc-gate术语门 等未覆盖分支(评审点名「接线覆盖不足」)
+- [x] P2:HUMAN_COMMUNICATION 七条压缩版进 persona;**reviewer 只读归位为与其余 7 角色一致的 prompt 级软指引**(读 agents/quality-reviewer.md 作为 subagent prompt)——删除死代码 NseosReviewerProvider(注册进 registry 但无工具行可达,是死代码+过度宣称);sandbox 级需改 DSH 驱动=过度实现;D4 硬不变量精确为「有生命周期状态组件 ≤1」
+- [x] P3 第一批:门禁接线层测试(8 块)+ `npm test`(自动建 symlink,不再 self-skip)+ CI + PARITY 标注两层证据
+- [ ] P3 第二批(需真实业务仓会话):PARITY_CHECKLIST 剩余项「故意注入 → 门真 deny → 清除 → 放行」活路径验收
