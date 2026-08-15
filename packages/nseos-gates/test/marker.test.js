@@ -246,6 +246,8 @@ test("releaseCredentialCheck: doc-adopted and prod-schema findings require their
   const review = { review: { head_sha: head, independent: true } };
   // doc-adopted repo without doc field
   assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: true, prodSchemaFinding: false }).gaps.some((g) => g.includes("doc")));
+  // doc-adopted CHECK ERROR (undefined) is fail-loud, never "clean"
+  assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: undefined, prodSchemaFinding: false }).gaps.some((g) => g.includes("doc-adopted")));
   // prod-schema finding without prod_schema field
   assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: false, prodSchemaFinding: true }).gaps.some((g) => g.includes("prod_schema")));
   // unknown current HEAD is a gap (cannot verify the binding)

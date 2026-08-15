@@ -389,7 +389,11 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
       gaps.push("review.note 缺测试绿 + 关键负控制证据(必答:写明测试怎么绿的、哪个负控制/变异让它转红过)");
     }
   }
-  if (docAdopted) {
+  if (docAdopted === undefined) {
+    // "couldn't tell" is never "clean": a doc-adopted check that errors must
+    // not silently drop the doc credential requirement.
+    gaps.push("无法确定仓库是否 doc-adopted(docs/domain 检测出错),按 fail-loud 处理");
+  } else if (docAdopted) {
     const doc = credential.doc;
     if (doc === undefined || doc === null) gaps.push("缺文档维护凭据(doc)");
     else if (typeof doc.head_sha !== "string" || doc.head_sha.trim() === "") gaps.push("doc 缺 head_sha");

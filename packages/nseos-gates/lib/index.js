@@ -509,14 +509,16 @@ export function apply(ctx) {
       } catch (e) {
         return ""; // no queue dir → nothing to remind
       }
-      const unsent = entries.filter((e) => e.type === "file" && !e.name.startsWith("."));
+      const unsent = entries.filter((e) => e.type === "file" && /\.md$/i.test(e.name) && !e.name.startsWith("."));
       if (unsent.length === 0) return "";
       let oldestMs = Infinity;
       for (const e of unsent) {
-        const m = e.name.match(/^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)/);
+        // Accept both filesystem-safe `…T03-51-09Z` and standard `…T03:51:09Z`
+        // (and compact date forms); parse the components directly so there is
+        // no locale/timezone ambiguity in Date.parse.
+        const m = e.name.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2})[-:](\d{2})[-:](\d{2})Z/);
         if (!m) continue;
-        const iso = m[1].replace(/(\d{2})-(\d{2})-(\d{2})Z$/, "$1:$2:$3Z");
-        const t = Date.parse(iso);
+        const t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
         if (!Number.isNaN(t)) oldestMs = Math.min(oldestMs, t);
       }
       const count = unsent.length;
