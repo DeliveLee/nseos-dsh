@@ -14,7 +14,7 @@ description: NSEOS 外层操作模型——先分类、再路由到最小够用�
 ## 路由(分类 → 选最小流程)
 
 - 解释 / 状态 / 只读诊断:直接查答,不建流程状态。
-- 单点 bug / 小改(有明显 oracle):走 `nseos-build-feature` 的轻量模式(合同要点 + 活路径复现根因)。
+- 单点 bug / 小改(有明显 oracle):走 `nseos-build-feature` 的轻量模式(合同要点 + **先复现根因并取证,再动手**;交接/历史里写的根因是上一棒的假设,先验证再采信)。
 - 跨模块 / 语义不清 / 产品敏感:走 `nseos-plan-feature`;用户可见界面在计划阶段内先 `product-ux-redesign` 立旅程与交互模型。材料决策解决且 `APPROVED` 后才进 build。
 - 审计 / 回归排查 / 安全评审 / 发布候选:走 `nseos-review-feature`。
 - 集成 / tag / 部署 / 迁移 / 生产:走 `nseos-integrate`。

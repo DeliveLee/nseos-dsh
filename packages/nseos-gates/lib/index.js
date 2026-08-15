@@ -465,7 +465,7 @@ export function apply(ctx) {
   // not diluted by long tool traffic. Fail-open: never rejects a step (a user
   // message is never dropped). Business repos only.
   const PROMPT_ROUTING_REMINDER =
-    "[nseos] 本回合若在业务仓库做交付执行:①产品代码交给 feature-developer 子代理(测试驱动,先写测试);若子代理多轮零文件输出(目标目录没建、list_agents 一直 running)就降级——主会话直接实现并在 .impl-boundary-ack 记一行越界、再派独立评审兜底;②宣称「做完」前按进度真源报剩余 N/M;③自审≠独立评审,release 凭据的 review.independent 要如实写 false;④反复撞到同一框架限制就走 nseos-feedback 记录;⑤会话开头若给了 Obsidian vault 路径,要下决策/修 bug/卡住前先按本项目名+关键词 grep 其 Decisions/Releases/Sessions/Runbooks 历史目录,命中就 read 并按历史结论走、别重蹈旧坑。纯阅读/问答/预设源仓库忽略本提醒。";
+    "[nseos] 本回合若在业务仓库做交付执行:①产品代码交给 feature-developer 子代理(测试驱动,先写测试);若子代理多轮零文件输出(目标目录没建、list_agents 一直 running)就降级——主会话直接实现并在 .impl-boundary-ack 记一行越界、再派独立评审兜底;②宣称「做完」前按进度真源报剩余 N/M;③自审≠独立评审,release 凭据的 review.independent 要如实写 false;④反复撞到同一框架限制就走 nseos-feedback 记录;⑤修 bug/下决策/卡住前先调查再动手:按本项目名+关键词 grep vault 历史目录(见会话开头),并复现/取证证明根因——交接单/历史里写的根因是上一棒的假设、不是事实,复现不出就先查日志/复现/历史,别自以为知道根因就下手。纯阅读/问答/预设源仓库忽略本提醒。";
   ctx.on("agent/pre-step", async (payload, next) => {
     try {
       if (payload.step !== 1) return next(); // once per turn, first step only
