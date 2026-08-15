@@ -113,6 +113,19 @@ test("classifyReleaseBash: docker compose prod signal is release, plain compose 
   assert.ok(classifyReleaseBash("docker-compose -f docker-compose.production.yml up"), "production compose file");
   assert.strictEqual(classifyReleaseBash("docker compose up -d"), undefined, "plain compose up is NOT release");
   assert.strictEqual(classifyReleaseBash("docker compose -f docker-compose.dev.yml up"), undefined, "dev compose is NOT release");
+  // a service NAMED "production-backend" is not a prod signal
+  assert.strictEqual(classifyReleaseBash("docker compose up production-backend"), undefined, "service name is NOT a prod signal");
+});
+
+test("classifyReleaseBash: version-tag requires v-prefix; shell chaining still classifies the release segment", () => {
+  // unprefixed "2.0" / "2.0-hotfix" are branch names, not version tags
+  assert.strictEqual(classifyReleaseBash("git push origin 2.0-hotfix"), undefined, "hotfix branch is NOT a version tag");
+  assert.strictEqual(classifyReleaseBash("git push origin v1.2.3"), "git push 版本标签 v1.2.3", "v-prefixed tag still caught");
+  // shell chaining: the release segment after && is still caught
+  assert.ok(classifyReleaseBash("git status && git push origin main"), "trailing trunk push after && must be caught");
+  assert.ok(classifyReleaseBash("git push origin main && echo done"), "leading trunk push");
+  assert.ok(classifyReleaseBash("git commit -am x; git push origin main"), "trunk push after ;");
+  assert.strictEqual(classifyReleaseBash("git status && git log"), undefined, "two benign segments stay benign");
 });
 
 test("deploy patterns catch remote/production commands, not local key tools", () => {

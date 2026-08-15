@@ -17,7 +17,11 @@ export const WINDOW_HOURS = 4;
 
 export const TRUNK_BRANCHES = new Set(["main", "master", "production"]);
 export const PUSH_MULTIREF_FLAGS = new Set(["--mirror", "--all", "--tags", "--follow-tags"]);
-const VERSION_TAG = /^v?\d+(?:\.\d+)+([-.+][0-9A-Za-z.-]+)?$/;
+// A version-TAG refspec must be `v`-prefixed. Unprefixed `2.0` / `2.0-hotfix`
+// are far more often BRANCH names than tags; flagging them trains the user to
+// disable the gate (Claude's own "not crying wolf" rule). Unprefixed tags are
+// still caught by TAG_REFSPEC / `--tags` / `git tag` below.
+const VERSION_TAG = /^v\d+(?:\.\d+)+([-.+][0-9A-Za-z.-]+)?$/;
 const TAG_REFSPEC = /^refs\/tags\//;
 const DEPLOYISH_WORKFLOW = /(?:deploy|release|publish|ship-it|promote|prod|^cd\b|[-_.]cd\b)/i;
 const PRODISH = /(?:prod|production|staging|release)/i;
@@ -115,27 +119,64 @@ function classifyGh(args) {
 }
 
 function classifyCompose(args) {
-  // docker compose up/down with a prod signal (prod file/profile/context/env)
-  // is a production deploy. Bounded: only flag on explicit prod markers.
+  // docker compose up/down with a prod signal in a FILE/PROFILE/CONTEXT/ENV
+  // flag value (e.g. `-f docker-compose.prod.yml`) is a production deploy.
+  // Deliberately NOT flagging a bare token like `production-backend` — that is
+  // usually a SERVICE name, not a prod target (Claude's COMPOSE_PROD_FLAGS).
   const hasProdFlag = args.some((a, idx) =>
     (COMPOSE_PROD_FLAGS.has(a) && idx + 1 < args.length && PRODISH.test(args[idx + 1]))
   );
-  const hasProdToken = args.some((a) => PRODISH.test(a) && (a.includes("prod") || a.includes("production") || a.includes("staging")));
-  return hasProdFlag || hasProdToken ? "docker compose 指向生产(prod 信号)" : undefined;
+  return hasProdFlag ? "docker compose 指向生产(prod 信号)" : undefined;
+}
+
+// Split a command on shell separators (&& || ; | newline), honoring quotes, so
+// `git status && git push origin main` still classifies the trailing release
+// segment (the gate runs before execution and cannot know which segment wins).
+function splitSegments(cmd) {
+  const segs = [];
+  let cur = "";
+  let quote = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      cur += ch;
+    } else if (ch === "\\" && i + 1 < cmd.length) {
+      cur += ch + cmd[++i];
+    } else if ((ch === "&" && cmd[i + 1] === "&") || (ch === "|" && cmd[i + 1] === "|")) {
+      if (cur.trim()) segs.push(cur.trim());
+      cur = "";
+      i++; // consume the second separator char
+    } else if (ch === ";" || ch === "|" || ch === "\n") {
+      if (cur.trim()) segs.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) segs.push(cur.trim());
+  return segs;
 }
 
 // Returns a human-readable reason when the bash command is release/deploy
 // class, or undefined when it is ordinary feature-branch/local work.
 export function classifyReleaseBash(cmd) {
   if (typeof cmd !== "string" || cmd.trim() === "") return undefined;
-  const tokens = tokenize(cmd);
-  const prog = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
-  if (!prog) return undefined;
-  const base = prog.split("/").pop();
-  const args = programArgs(tokens);
-  if (base === "git") return classifyGit(args);
-  if (base === "gh") return classifyGh(args);
-  if (base === "docker" || base === "docker-compose" || /docker-compose$/.test(base)) return classifyCompose(args);
+  for (const seg of splitSegments(cmd)) {
+    const tokens = tokenize(seg);
+    const prog = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+    if (!prog) continue;
+    const base = prog.split("/").pop();
+    const args = programArgs(tokens);
+    let reason;
+    if (base === "git") reason = classifyGit(args);
+    else if (base === "gh") reason = classifyGh(args);
+    else if (base === "docker" || base === "docker-compose" || /docker-compose$/.test(base)) reason = classifyCompose(args);
+    if (reason !== undefined) return reason;
+  }
   return undefined;
 }
 
