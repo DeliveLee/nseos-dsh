@@ -1,0 +1,21 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Core predicate tests (marker.test.js) need no peer deps. The wiring
+      # tests (wiring.test.js) import the DSH peer deps and self-skip here —
+      # they run on the maintainer's machine where ~/.dsh/profiles/node_modules
+      # exists (see the wiring.test.js header for the symlink one-liner).
+      - name: Run core gate tests
+        working-directory: packages/nseos-gates
+        run: node --test

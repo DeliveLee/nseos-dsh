@@ -3,6 +3,8 @@
 > 每条判据 = **可自动化的负控制**(证明「该 deny/注入/校验真的发生」,不是「能跑/能看到」)。
 > 原则:绿色证据只在「相关故障能让它变红」之后才算数。状态在 P6 收口前逐项填 `PASS`/`FAIL`/`PENDING`。
 
+> **验证进度(v0.13.0)**:两条证据层次——① 纯谓词负控制(核心语义会不会 deny,`test/marker.test.js`,29 项);② 接线层负控制(门真的 armed,`test/wiring.test.js`,5 项,mock fs/ctx 证明 handler 真 deny/allow)。#6 skill-gate、#8 action-gate 已有①②两层;#2 reviewer 只读、#10 marker 五态、#12 release 凭据、#15 fail-open 有①层(谓词)缺②层(接线);其余需真实 NSEOS 会话做「故意注入 → 门真 deny → 清除 → 放行」活路径验收(手工程序见 `VERIFICATION_STATUS.md`)。
+
 | # | 对等项 | 机械判据(负控制) | 状态 |
 |---|---|---|---|
 | 1 | 12 个 `nseos-*` 技能可加载路由 | 摘掉任一 skill 文件 → `tool-skill` list 少一个、`get` 返回 undefined;恢复 → 回来。12 名均可 `get` 到 body | PENDING |

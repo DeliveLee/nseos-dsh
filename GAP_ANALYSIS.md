@@ -187,11 +187,11 @@ Claude 版历史(`Hermes/Projects/nseos.md`)早已建立的标准动作是**「�
 
 ---
 
-## 七、待办状态(2026-08-15 更新)
+## 七、待办状态(2026-08-15 第二轮更新)
 
-- [x] P0(内容层)落地 + 提交(去重 3 对 reference / 修 6 处断链 / 统一命名 / 替换 4 处 `$ARGUMENTS`)
-- [x] P1 机器层第一批:action-gate 精确化 + 修源仓库豁免 bug + 修 prod_schema 死代码 + feedback 每轮提醒 + 8 个 agent 角色卡从死文件变活
-- [x] P3 第一批:门禁接线层测试(证明四道门真 deny/allow)+ `package.json` test script
-- [ ] P2:① nseos-setup/upgrade + stale 三态自检(装「已装 vs 源 vs GitHub 最新」三态 + 一键重装);② HUMAN_COMMUNICATION 每轮注入(三层冗余);③ reviewer 只读沙箱(现为 toolFilter denylist,非沙箱);④ 复杂度预算重估(1033 行已超 D4 的 1000 行)
-- [ ] P3 第二批:PARITY_CHECKLIST 18 项活会话验收(真机「故意注入 → 门真 deny → 清除 → 放行」负控制)+ CI
-- [ ] 重新挂载:改门禁代码后重跑 `INSTALL.md` 第 1 步 `cp -R`(拷贝不自动同步)
+- [x] P0(内容层):去重 3 对 reference / 修 6 处断链 / 统一命名 / 替换 4 处 `$ARGUMENTS`
+- [x] P1 机器层:action-gate 精确化 + 修源仓库豁免 bug + 修 prod_schema 死代码 + feedback 每轮提醒 + 8 个 agent 角色卡从死文件变活
+- [x] P2:HUMAN_COMMUNICATION 七条压缩版进 persona;reviewer 只读确认为 toolFilter 真机器边界(DECISIONS D3 修正,sandbox 级需改 DSH 驱动=过度实现);upgrade/stale 已由 nseos-maintain Step 9(diff 哨兵 + cp -R 滞后提示)覆盖;复杂度预算 D4 诚实重估
+- [x] P3 第一批:门禁接线层测试 + `package.json` test script + CI workflow + PARITY_CHECKLIST 标注两层证据
+- [ ] P3 第二批(需真实业务仓会话):PARITY_CHECKLIST 剩余项的「故意注入 → 门真 deny → 清除 → 放行」活路径验收(程序见 VERIFICATION_STATUS.md)
+- [ ] 重新挂载:改门禁代码后重跑 INSTALL.md 第 1/2 步 `cp -R`

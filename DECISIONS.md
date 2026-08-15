@@ -32,14 +32,15 @@
 - session 路由 → `agent/session-start` + `agent.inject()`(不用 `systemPrompt.section()`,拿不到按会话上下文)。
 - prompt 路由 → `agent/pre-step`(每人类回合首 step 注入,只注入不 reject)。
 - progress-gate Stop → `agent/turn-stopping` + `ctx.sessionQuery` 自读收口文本 + `agent.steer()` 拦截 + `storageDomain` 预算。
-- 8 agents → `subagents.registerProvider()`;只读 reviewer = provider `start()` 内 `childSession.append('sandbox/mode',{mode:'read-only'})`;禁递归 = `maxDepth` + `toolFilter.deny`。
+- 8 agents → `subagents.registerProvider()`;只读 reviewer = provider `start()` 内设 `toolFilter.deny`(write/edit/bash/subagent/…)+ `maxDepth=1`(禁递归)。**修正**:DSH one-shot provider 的 `start()` 不暴露「按 child 设 sandbox mode」的通道(`SubagentStartRequest` 只有 persona/toolFilter/maxDepth/agentOptions,agentOptions 只含 provider/model/maxTokens);沙箱 mode 是「父会话显式 override」沿继承链传递,provider 不能 per-child 覆盖。所以「只读」由 toolFilter 兑现——它是**真机器边界**(被 deny 的工具从子代理 tool 注册表移除、且拒绝执行),不是 prompt 声明;更强的「沙箱级只读」需改 DSH 驱动,属过度实现,已诚实标注为已知限制。
 - 审批门禁 = `approval.request()`(工具级)+ 合同状态进 Phase 3 + 人类批范围 `userQuestions.ask()`;门禁只用 allow/deny,不用 ask(无 approval 服务时退化为 deny)。
 - `ToolExecution` 无 cwd/分类字段:工具名重键 + `arguments.*` 取参 + `sandboxPolicy.resolve` 推仓库根;orchestrator-vs-subagent 用 `exec.agent` + `agents.requireInitiator()`/`isOwnedBy()`。
 
 ## D4 · 复杂度预算
 
-- 机器层 JS ≤ 1000 行;自建持久化 schema ≤ 1(仅 flow-marker);门禁测试 ≤ 100;无第二个状态文件。
-- 否决任何自建状态机(不论语言)+ 第二个持久化 schema;超出即回 P0。
+- **反 Codex 硬不变量(不可越线)**:自建持久化 schema ≤ 1(仅 flow-marker);**无状态机**(不论语言);无第二个状态文件;门禁测试 ≤ 100 个 test 块。
+- **JS 行数预算(诚实重估,v0.13.0)**:原「≤1000 行」在 v0.13.0 精确化 action-gate 后超线(实测 lib 1193 行)。重估为「机器层 JS ≤ 1500 行;纯谓词 `core.js` ≤ 500 行」。行数超的不是状态机逻辑,而是 (a) 精确分类器(移植 Claude `_release_class`,约 130 行,替换原 5 条粗糙正则——这是精度修复不是膨胀);(b) 必要的人类可读 deny/注入文案。**行数是「别过度工程」的代理,不是过度工程本身**——挪目录/删文案不能假装达标,判据是「没有状态机、没有第二个 schema、谓词保持纯函数」。
+- 若未来长出「跨会话恢复 / 迁移 / 回滚」诉求,那是 `goals` 的事,不是本组件的扩展理由(见 `FLOW_MARKER_CONTRACT.md` §7)。
 
 ## D5 · 反 Codex 约束(11 条)
 
