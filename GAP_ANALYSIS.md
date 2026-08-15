@@ -70,7 +70,7 @@ Claude 用 `_release_class()`/`_classify()`(TRUNK_BRANCHES / PUSH_MULTIREF_FLAGS
 
 ### G. 复杂度预算超线(违反 D4)❌
 
-- DECISIONS D4 / MIGRATION_PLAN §4:机器层 JS ≤1000 行。实测 core.js 253 + index.js 780 = **1033 行**,已超。对抗评审 C 早就警告「三年后即第二个 Codex 覆辙」。
+- DECISIONS D4 / MIGRATION_PLAN §4:机器层 JS ≤1000 行。实测(v0.13.0 精确化后)core.js 420 + index.js 814 = **1234 行**,已超。对抗评审 C 早就警告「三年后即第二个 Codex 覆辙」;但超的是「精确分类器 + deny 文案」,非状态机逻辑,已在 D4 诚实重估(见 DECISIONS.md)。
 
 ---
 

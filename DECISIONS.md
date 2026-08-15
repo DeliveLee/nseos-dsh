@@ -12,7 +12,7 @@
 | 项 | 降级后形态 | 去掉 | 保留 |
 |---|---|---|---|
 | Obsidian 知识库 | `nseos-knowledge`(并入 `nseos-learn`),阶段边界触发/手动,写 vault 指定路径 | 自动双向同步、Stop 门禁强制、`.obsidian/` 插件安装 | 知识沉淀能力 + 5 个 Obsidian note 模板(vault 路径待用户配置) |
-| doc-audit cron | `nseos-doc-audit` 手动 sweep skill + 路由注入 stale 提醒 | 自动定时调度(DSH 无 cron) | 漂移检测、只改 `*.md`、开 PR 不自动合、剪枝留人确认 |
+| doc-audit cron | `nseos-doc-audit` 手动 sweep skill(无路由 stale 提醒——路由层无「检测文档 stale」能力,诚实标注) | 自动定时调度(DSH 无 cron) | 漂移检测、只改 `*.md`、开 PR 不自动合、剪枝留人确认 |
 | 分发 | 单独 GitHub 私有库,每次完成打 tag + release | `dist/*.zip` + `TEAM-INSTALL.md` | 版本化分发 + 安装路径(仓库名待用户提供) |
 | 621 测试 | 语义重表达为门禁负控制(≤100) | Python hook 测试本身 | marker 五态 / RELEASE_CLASS / done-claim / stale 判定语义 |
 
