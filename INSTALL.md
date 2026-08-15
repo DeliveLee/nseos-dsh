@@ -53,6 +53,15 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.11.0 — 2026-08-15 撞问题前主动搜 Obsidian 历史(模型不再重蹈旧坑)
+
+**门禁(`@deliveli/nseos-gates`)**:
+- 会话开头的 vault 指针从「被动指路」升级为「主动指引」(FB-20260815-002):除 vault 路径与知识库目录外,现在列出历史子目录(`Decisions`/`Releases`/`Sessions`/`Runbooks`/`Conflicts`)与匹配本项目名的 `Projects/` 索引笔记,并明令「撞到问题/要下决策/修 bug 之前,先按本项目名+关键词 grep 这些历史目录,命中就 read 按历史结论走,别重新推导撞同一堵墙」。此前只提示「可以搜」,模型从不真的搜,导致反复踩同一个旧坑。
+- 每回合纪律指针新增第⑤条:下决策/修 bug/卡住前先 grep vault 历史目录(自守卫:仅当会话开头给了 vault 路径),把「搜历史」做成每回合重注入的纪律,而不是会话开头一句然后被长对话冲淡。
+
+**引用**:
+- `OBSIDIAN_INTEGRATION.md` 新增「读侧/按问题搜历史」一节,说明渐进披露(只注入目录名与路径、绝不批量注入 note 正文,模型按需 grep/read 具体笔记)。
+
 ### v0.10.0 — 2026-08-15 发布/部署确认改用「直接问人类」,approval=never / full-access 下也要明确同意才放行
 
 **门禁(`@deliveli/nseos-gates`)**:

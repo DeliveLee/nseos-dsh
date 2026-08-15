@@ -249,9 +249,14 @@ export function apply(ctx) {
     }
   }
 
-  // Obsidian query pointer: surface the vault's knowledge-base dirs + any
-  // project-named folder under <kb>/Projects/. Progressive disclosure — names
-  // only, never note content.
+  // Obsidian query pointer + ACTIVE history-lookup instruction. Surface the
+  // vault's knowledge-base dirs, the history subdirs (Decisions/Releases/
+  // Sessions/Runbooks/Conflicts), and any project-index note under
+  // <kb>/Projects/ matching the repo name. Progressive disclosure — names and
+  // paths only, never note content. The instruction is active ("search BEFORE
+  // deciding/fixing") because a passive "you could look" is never followed and
+  // the model keeps re-hitting the same historical failures (FB-20260815-002).
+  const HISTORY_DIRS = ["Decisions", "Releases", "Sessions", "Runbooks", "Conflicts"];
   async function vaultPointer(cwd) {
     try {
       const vault = await vaultPath();
@@ -261,17 +266,26 @@ export function apply(ctx) {
       const kbDirs = top.filter((e) => e.type === "directory" && !e.name.startsWith(".")).slice(0, 4).map((e) => e.name);
       if (kbDirs.length === 0) return "";
       const project = cwd ? String(cwd).split("/").pop() : "";
+      const historyDirs = [];
       const projectHits = [];
-      if (project) {
-        for (const kb of kbDirs) {
+      for (const kb of kbDirs) {
+        let entries;
+        try {
+          entries = await fs.listDir(await fs.resolve(vault + "/" + kb));
+        } catch (e) {
+          continue;
+        }
+        const names = entries.map((e) => e.name);
+        for (const h of HISTORY_DIRS) {
+          if (names.includes(h)) historyDirs.push(kb + "/" + h);
+        }
+        if (project) {
           try {
-            const projectsTarget = await fs.resolve(vault + "/" + kb + "/Projects");
-            const pEntries = await fs.listDir(projectsTarget);
+            const pEntries = await fs.listDir(await fs.resolve(vault + "/" + kb + "/Projects"));
             for (const p of pEntries) {
-              const name = p.name;
-              if (name.startsWith(".") || name.includes(".bak")) continue;
-              if (name.toLowerCase().includes(project.toLowerCase())) {
-                projectHits.push(kb + "/Projects/" + name);
+              if (p.name.startsWith(".") || p.name.includes(".bak")) continue;
+              if (p.name.toLowerCase().includes(project.toLowerCase())) {
+                projectHits.push(kb + "/Projects/" + p.name);
               }
             }
           } catch (e) {
@@ -279,8 +293,9 @@ export function apply(ctx) {
           }
         }
       }
-      const hitLine = projectHits.length ? "\n与本项目相关的历史笔记:" + projectHits.slice(0, 6).join(" / ") : "";
-      return "\nObsidian vault 配置在 " + vault + ";知识库目录:" + kbDirs.join(" / ") + hitLine + "。要看历史决策/发布/知识记录,用 grep/read 在 vault 里按项目名/关键词搜。";
+      const historyLine = historyDirs.length ? "\n历史记录目录:" + historyDirs.slice(0, 8).join(" / ") : "";
+      const hitLine = projectHits.length ? "\n本项目索引/笔记:" + projectHits.slice(0, 6).join(" / ") : "";
+      return "\nObsidian vault 配置在 " + vault + ";知识库目录:" + kbDirs.join(" / ") + historyLine + hitLine + "。撞到问题/要下决策/修 bug 之前,先用 grep 在上述历史目录里按本项目名+关键词搜历史决策与失败记录,命中就 read 读进上下文、按历史结论走,不要重新推导撞同一堵墙。";
     } catch (e) {
       return "";
     }
@@ -450,7 +465,7 @@ export function apply(ctx) {
   // not diluted by long tool traffic. Fail-open: never rejects a step (a user
   // message is never dropped). Business repos only.
   const PROMPT_ROUTING_REMINDER =
-    "[nseos] 本回合若在业务仓库做交付执行:①产品代码交给 feature-developer 子代理(测试驱动,先写测试);若子代理多轮零文件输出(目标目录没建、list_agents 一直 running)就降级——主会话直接实现并在 .impl-boundary-ack 记一行越界、再派独立评审兜底;②宣称「做完」前按进度真源报剩余 N/M;③自审≠独立评审,release 凭据的 review.independent 要如实写 false;④反复撞到同一框架限制就走 nseos-feedback 记录。纯阅读/问答/预设源仓库忽略本提醒。";
+    "[nseos] 本回合若在业务仓库做交付执行:①产品代码交给 feature-developer 子代理(测试驱动,先写测试);若子代理多轮零文件输出(目标目录没建、list_agents 一直 running)就降级——主会话直接实现并在 .impl-boundary-ack 记一行越界、再派独立评审兜底;②宣称「做完」前按进度真源报剩余 N/M;③自审≠独立评审,release 凭据的 review.independent 要如实写 false;④反复撞到同一框架限制就走 nseos-feedback 记录;⑤会话开头若给了 Obsidian vault 路径,要下决策/修 bug/卡住前先按本项目名+关键词 grep 其 Decisions/Releases/Sessions/Runbooks 历史目录,命中就 read 并按历史结论走、别重蹈旧坑。纯阅读/问答/预设源仓库忽略本提醒。";
   ctx.on("agent/pre-step", async (payload, next) => {
     try {
       if (payload.step !== 1) return next(); // once per turn, first step only

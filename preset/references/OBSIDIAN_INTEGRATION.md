@@ -6,6 +6,10 @@ Git and project-local AI-NSEOS artifacts remain the authoritative execution reco
 
 Obsidian must not become a second uncontrolled copy of live Feature State.
 
+## History lookup on problem (read side)
+
+At session start the gate injects the vault path, its knowledge-base dirs, the history subdirs (Decisions / Releases / Sessions / Runbooks / Conflicts) and any project-index note under `<kb>/Projects/` matching the repo name — names and paths only, never note content. The per-turn reminder re-urges the model: before deciding, fixing a bug, or when stuck, grep those history dirs by project name + keyword and follow prior conclusions instead of re-deriving the same wall (FB-20260815-002: the model kept re-hitting the same historical failures). This is progressive disclosure — the model reads specific notes with grep/read on demand; the gate never bulk-injects note content.
+
 ## Precedence of an existing knowledge-base workflow
 
 If the user's global instructions or memory already define an authoritative knowledge-base workflow (for example an existing Vault with its own project notes, session handoffs, decision notes and stop-gate), that workflow takes precedence. In that case keep this preset's Obsidian profile `UNCONFIGURED`, do not run the `nseos-knowledge` sync step, and never create a second, parallel publishing pipeline for the same content — double-writing the same knowledge into two structures is a conflict, not extra safety.
