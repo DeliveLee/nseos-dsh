@@ -44,7 +44,7 @@ Do this in a scratch copy or by reverting your own edit — **never with `git re
 Two failure shapes worth naming, because both have shipped here:
 
 - **The always-true assertion.** Asserting "this control is not visible" while authenticated as an identity with no permissions at all is satisfied unconditionally by the permission gate — it is green forever and tests nothing. One real batch shipped 12 of these. The control identity must be *inside* the system and missing exactly one permission.
-- **The proxy that is not the outcome.** `expect(res.status).toBe(200)` does not test that the page renders; `expect(el).toBeInTheDocument()` does not test that a user can click it. See `VERIFICATION_INTEGRITY.md` §5.1–5.2 for what to assert instead.
+- **The proxy that is not the outcome.** `expect(res.status).toBe(200)` does not test that the page renders; `expect(el).toBeInTheDocument()` does not test that a user can click it. See `VERIFICATION.md` §5.1–5.2 for what to assert instead.
 
 If you claim "this test now protects against X", you must be able to show "I broke X and N tests went red". Saying it without doing it is a false report, and it is checkable after the fact.
 

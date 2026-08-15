@@ -9,7 +9,7 @@ description: 在业务仓库审计 AI 文档健康,两种模式:漂移(近期代
 
 - **漂移模式(drift,默认)**——回答「代码改了 → 哪条文档过期了」。变更触发,适合高频(每日 / 每次 PR 前)。走下面 Step 1–8。
 - **整体体检模式(holistic / 体检)**——回答「攒了这么多域文档,整体还健康吗」。不依赖代码改动,通读全部文档找**跨域矛盾 / 重复 / 孤儿 / 陈旧 / 剪枝候选 / 结构问题**。适合低频(月度或域数量明显增长时)。走下面「整体体检模式」节。
-- 调用:`$ARGUMENTS` 含「体检 / holistic / full」→ 走体检模式;否则默认漂移模式。
+- 模式判定:从用户请求或本会话上下文判断——用户点名「体检 / holistic / full」→ 走体检模式;否则默认漂移模式(DSH 的 skill 工具不接收调用参数)。
 
 它改编自一份线上 drift-audit skill,但**适配 nseos 的知识分层**:`AGENTS.md`(薄索引 + Always/Ask/Never 与路径绑定规矩)/ `docs/domain/*`(业务语言与规则)/ `docs/architecture{,/<module>}.md`(模块地图)/ `ai-nseos/PROJECT_PROFILE.md`(治理详情)。开发 SOP 不在业务仓库内,在 nseos preset 的 `skills/`(插件自带,不是被审计对象)。**DSH 版无 `.claude/` 目录**:原版的 `.claude/rules/*` 由 `AGENTS.md` 承担,`.claude/skills/*` 由 preset skills 承担。
 

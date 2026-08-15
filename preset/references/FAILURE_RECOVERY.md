@@ -55,7 +55,7 @@ This report matters more than most, because the human reads it to decide **how t
 | Required decision/authority | **Exactly what you need from him or from whom** — named person or named permission, not "需要 owner 确认" |
 | Safest next step | What you recommend, and what happens if the decision waits |
 
-Never dress a blockage as progress, and never soften the required authority into a suggestion. Two specific cases: an unmet machine gate is a legitimate `BLOCKED` (`references/INTEGRATION_AND_RELEASE.md`) and must be reported as work not yet done, not as a tooling annoyance; and a `Security/data` class failure keeps rule five at full strength — see `references/SECURITY_POLICY.md`.
+Never dress a blockage as progress, and never soften the required authority into a suggestion. Two specific cases: an unmet machine gate is a legitimate `BLOCKED` (`references/RELEASE.md`) and must be reported as work not yet done, not as a tooling annoyance; and a `Security/data` class failure keeps rule five at full strength — see `references/SECURITY.md`.
 
 ## 合法 BLOCKED 是终点,不是「还没做完」(v0.25.1, FB-20260727-005)
 

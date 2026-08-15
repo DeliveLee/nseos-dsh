@@ -1,6 +1,6 @@
 # Verification Integrity — 判真方法的唯一真源
 
-> 本文件是「一项检查是否真的能区分好与坏」的**唯一** owner。其它 skill / agent / template 只许**指向**这里,不许复制其中的判据表和术语定义(`KNOWLEDGE_ENGINEERING.md` 的单一真源原则)。
+> 本文件是「一项检查是否真的能区分好与坏」的**唯一** owner。其它 skill / agent / template 只许**指向**这里,不许复制其中的判据表和术语定义(`KNOWLEDGE.md` 的单一真源原则)。
 > 引入版本:v0.25.0(批次 B)。
 
 ## 0. 这份文件要解决什么
@@ -175,7 +175,7 @@ attestation:       # 谁用什么产生的
 1. **同一个 HEAD 下 staged / unstaged / 相关未跟踪文件变了,旧证据就失效。** 「HEAD 没变所以还算数」是错的。
 2. **探针跑之前先确认 runtime 对应 candidate**:错端口、旧 build、旧 dev server、错数据库、错夹具、错身份 → `RUNTIME_MISMATCH` → `UNVERIFIED`,不是 `FAIL` 也不是 `PASS`。
 3. **开发服务器不是发布 oracle。** Next.js 一类框架的 `dev` 服务器在并发压力下会写坏自己的构建产物:实测 6 并发的全站审计把 `.next/prerender-manifest.json` 写出重复尾部,随后 723/731 个 URL 统一返回 500;**同一份代码**用 `next build` + `next start` 的生产工件在同样 6 并发下 731/731 通过。**全站 / 压力 / 发布级验收必须针对已构建的生产工件执行**,dev server 上的同类结果判 `RUNTIME_MISMATCH` → `UNVERIFIED`,诊断时默认串行。同理,构建时环境身份必须进 `runtime` 记录(build-time env / start-time env / 端口 / 工作树 / 工件指纹):实测漏传一个 `NEXT_PUBLIC_STOREFRONT_URL` 导致图片优化器只允许错误端口,源图 200 而优化器 400,**旧标签与热缓存把它掩盖了**——媒体类验收必须包含冷缓存或等价负控。
-4. **发布凭据已经机器化了这一层**:`.release-ready.json` 每字段带 `head_sha`,HEAD 一动即 `EVIDENCE_STALE`(v0.24.0)。写法与语义见 `INTEGRATION_AND_RELEASE.md` 步骤 2 —— **那里是凭据格式的唯一真源,不要在别处复制那条命令**。
+4. **发布凭据已经机器化了这一层**:`.release-ready.json` 每字段带 `head_sha`,HEAD 一动即 `EVIDENCE_STALE`(v0.24.0)。写法与语义见 `RELEASE.md` 步骤 2 —— **那里是凭据格式的唯一真源,不要在别处复制那条命令**。
 
 ## 7. 结构化纠错记录
 

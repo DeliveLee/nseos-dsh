@@ -39,10 +39,10 @@ Reading the developer's summary first anchors you to their framing. For each acc
 1. State the **user-observable outcome** in product language, not implementation language.
 2. Rank by risk and oracle novelty. For anything critical, user-visible, or using a new oracle, write **at least one concrete deceptive counterexample** — a specific broken implementation that would still pass the current check. If you cannot name one, you do not yet understand what the check tests; say so rather than passing it.
 3. Name the **oracle** and its version — what actually decides pass/fail.
-4. For those high-risk criteria, actually run the negative control: known-failure fixture, fault injection, or a temporary mutation in a throwaway copy. **Never mutate a dirty working tree** — see the safety rule in `VERIFICATION_INTEGRITY.md` §4.
+4. For those high-risk criteria, actually run the negative control: known-failure fixture, fault injection, or a temporary mutation in a throwaway copy. **Never mutate a dirty working tree** — see the safety rule in `VERIFICATION.md` §4.
 5. Only after a check has been shown to go red on a bad example may you use it to judge the good example.
 
-Watch specifically for the assertion that is **always true** (`VERIFICATION_INTEGRITY.md` §5.4) — asserting "this button is hidden" while authenticated as an identity with no permissions at all is the canonical case, and one real batch shipped 12 of them, all green, all worthless.
+Watch specifically for the assertion that is **always true** (`VERIFICATION.md` §5.4) — asserting "this button is hidden" while authenticated as an identity with no permissions at all is the canonical case, and one real batch shipped 12 of them, all green, all worthless.
 
 ## Phase 2 — then review the implementation
 

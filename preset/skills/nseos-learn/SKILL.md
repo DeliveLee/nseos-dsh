@@ -5,7 +5,7 @@ description: 把已验证的项目成果、失败或决策转成带来源溯源�
 
 # 沉淀受治理的项目知识
 
-触发来源:$ARGUMENTS
+触发来源:本会话已稳定验证的成果 / 失败 / 决策(从 contract / review / handoff / ADR / release 证据归纳;DSH 的 skill 工具不接收调用参数)。
 
 0. 先标记流程激活,让 skill-gate 放行步骤内工具技能。用 `write` 工具把 flow marker 写成单行 JSON 到 `<仓库根>/ai-nseos/state/flow/<session-slug>.json`:`session_id` 取本会话 id(勿猜、勿留占位符,门禁据此归属),`mode` 填 `learn`,`contract` 一行知识来源要点。JSON 结构与校验语义见 `FLOW_MARKER_CONTRACT.md`(空文件/错 session/过期 >4h → 门禁 deny)。
 1. 要求项目已初始化;读取相关 contract、review、handoff、ADR、release 证据与仓库事实。

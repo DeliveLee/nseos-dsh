@@ -39,7 +39,7 @@
 
 - 「为什么没验」写具体原因，不写「时间不够」这类无信息词。
 - 「撞上了会怎样」写后果，按 `HUMAN_COMMUNICATION.md` 规则五：不许软化严重性。
-- 「可否预授权」按 `references/DECISION_RIGHTS.md` 决策矩阵第 4 列判定，那里是唯一真源；执行期拿到级别后怎么用，见 `references/AUTONOMY_POLICY.md` §3。判「否」的条目在执行期一律挂起，不进授权书的自决部分；拿不准落在哪一类时按「否」填。
+- 「可否预授权」按 `references/AUTHORITY.md` 决策矩阵第 4 列判定，那里是唯一真源；执行期拿到级别后怎么用，见 `references/AUTONOMY_POLICY.md` §3。判「否」的条目在执行期一律挂起，不进授权书的自决部分；拿不准落在哪一类时按「否」填。
 
 ## 勘探方法记录
 
