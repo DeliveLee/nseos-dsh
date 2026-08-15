@@ -26,6 +26,8 @@ description: NSEOS 外层操作模型——先分类、再路由到最小够用�
 
 **任何技能——包括你自己的项目专用技能、其它框架技能——都是 nseos 各步骤【内】的工具,不是顶层入口。** 需求发现/计划在 `nseos-plan-feature` 内、实现在 `nseos-build-feature` 内、修 bug/UX 根因/对齐在轻量模式内调用它们。机器级 skill-gate 会机械拦截「业务仓库里、未进入流程时」对任何非 `nseos-*` 技能(skill 工具)的顶层调用,引导先进流程。进入流程后自动放行。
 
+**派角色子代理时,角色定义在 `agents/<role>.md`(8 个:architect / domain-knowledge / feature-developer / integration-reviewer / knowledge-curator / product-analyst / quality-reviewer / security-reviewer)。先 `read` 对应角色的文件,把它的 body 作为 subagent 的 prompt 前缀——读它、别现编;角色卡是这份文件,不是靠记忆。** 这不是软建议:skill 里写「派 X 角色」,角色内容就活在这份文件里,不读就等于派了个空名头。
+
 ## 标记流程激活(flow marker)
 
 进入任何流程前,先写本会话的 flow marker——每个门禁都读它判断「是否在流程内」。用 `write` 工具写单行 JSON 到 `<仓库根>/ai-nseos/state/flow/<session-slug>.json`:
