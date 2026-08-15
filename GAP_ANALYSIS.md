@@ -187,9 +187,11 @@ Claude 版历史(`Hermes/Projects/nseos.md`)早已建立的标准动作是**「�
 
 ---
 
-## 七、待办状态
+## 七、待办状态(2026-08-15 更新)
 
-- [ ] P0(内容层)落地 + 提交
-- [ ] P1(机器层)落地 + 负控制测试 + 提交
-- [ ] P2(补齐)落地 + 提交
-- [ ] P3(验证)PARITY 18 项 + 活会话负控制 + CI + 提交
+- [x] P0(内容层)落地 + 提交(去重 3 对 reference / 修 6 处断链 / 统一命名 / 替换 4 处 `$ARGUMENTS`)
+- [x] P1 机器层第一批:action-gate 精确化 + 修源仓库豁免 bug + 修 prod_schema 死代码 + feedback 每轮提醒 + 8 个 agent 角色卡从死文件变活
+- [x] P3 第一批:门禁接线层测试(证明四道门真 deny/allow)+ `package.json` test script
+- [ ] P2:① nseos-setup/upgrade + stale 三态自检(装「已装 vs 源 vs GitHub 最新」三态 + 一键重装);② HUMAN_COMMUNICATION 每轮注入(三层冗余);③ reviewer 只读沙箱(现为 toolFilter denylist,非沙箱);④ 复杂度预算重估(1033 行已超 D4 的 1000 行)
+- [ ] P3 第二批:PARITY_CHECKLIST 18 项活会话验收(真机「故意注入 → 门真 deny → 清除 → 放行」负控制)+ CI
+- [ ] 重新挂载:改门禁代码后重跑 `INSTALL.md` 第 1 步 `cp -R`(拷贝不自动同步)

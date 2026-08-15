@@ -53,6 +53,28 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.13.0 — 2026-08-15 差距对账落地:内容层去重断链 + action-gate 精确化 + 门禁接线测试
+
+> 依据 `GAP_ANALYSIS.md`(取代过期的 `AUDIT.md`)。本次是「样子货→真绿」的第一批:消除内容层假绿 + 修机器层正确性 + 给接线补测试。
+
+**内容层(P0)**:
+- 删除 3 对逐字节重复 reference(`DECISION_RIGHTS`≡`AUTHORITY`、`SECURITY_POLICY`≡`SECURITY`、`PARALLEL_DEVELOPMENT`≡`PARALLEL`),统一到被引用更多的新名。
+- 修 6 处断链(`INTEGRATION_AND_RELEASE`→`RELEASE`、`VERIFICATION_INTEGRITY`→`VERIFICATION`、`KNOWLEDGE_ENGINEERING`→`KNOWLEDGE`),此前 `VERIFICATION_STATUS.md`「36 处引用全解析」是假绿。
+- 替换 4 个 skill 里 DSH 不支持的 `$ARGUMENTS` 占位符;`AUDIT.md` 标注为过期快照。
+
+**机器层(P1)**:
+- **action-gate 精确化**(移植 Claude `_release_class`):`git push origin feature/foo` 不再误拦(原 `\bgit\s+push\b` 拦所有 push);补上漏拦的 `--mirror/--all/--tags/--follow-tags` 多 ref、版本 tag、`gh workflow run <deploy>`(lint/test 不拦)、docker compose prod 信号。既少误伤、又少漏拦。
+- **修源仓库豁免 bug**:`git push`/release 在 preset 源仓库不再直接放行——仍走人类批准层(route-work「绝不豁免 push」),只有非 git 目录才放行。
+- **修 prod_schema 凭据死代码**:扫描到 ORM 风险不再无条件 deny,改为要求 `prod_schema` 凭据(走五步+人类确认+写凭据)可消解,与 RELEASE.md 语义一致;只有「扫不动」才 fail-loud。
+- **feedback 每轮提醒**:prompt-routing 注入加队列计数(≥3 条或最早 ≥24h),兑现 `nseos-feedback` 早已宣称、代码里没有的那条链路。
+- **8 个 agent 角色卡从死文件变活**:`nseos-route-work` 新增硬指引——派角色子代理前先 `read agents/<role>.md` 作为 prompt 前缀。
+
+**验证(P3)**:
+- 新增 `test/wiring.test.js`:mock fs/ctx 捕获四个 `tools/pre-execute` handler,证明 skill-gate 真 deny、action-gate 真放行 feature-branch 且真 deny 主干、ledger/doc-gate 真接线。此前接线层 0 覆盖(纯谓词 29 项测试证明「谓词会 deny」,但「门真的 armed」从未被证明)。
+- `package.json` 加 `test` script + 版本 0.13.0;测试 29→34(纯谓词 + 接线)。接线测试在 peer deps 不可解析时 self-skip。
+
+**尚未落地(见 `GAP_ANALYSIS.md` P2)**:nseos-setup/upgrade + stale 三态、HUMAN_COMMUNICATION 每轮注入、reviewer 只读沙箱(现为 toolFilter denylist)、PARITY_CHECKLIST 18 项活会话验收。
+
 ### v0.12.0 — 2026-08-15 「根因是假设,先证明再动手」——治「自以为知道根因、完全不调查」
 
 **门禁(`@deliveli/nseos-gates`)**:
