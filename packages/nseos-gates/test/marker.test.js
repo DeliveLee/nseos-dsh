@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -67,11 +67,52 @@ test("isNseosSkill matches only the nseos- prefix", () => {
   assert.strictEqual(isNseosSkill(undefined), false);
 });
 
-test("release patterns are conservative (release-class yes, feature-branch no)", () => {
-  assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("git push origin main")), true);
-  assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("gh pr merge 42")), true);
-  assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("git commit -m x")), false);
-  assert.strictEqual(RELEASE_PATTERNS.some((re) => re.test("npm test")), false);
+test("classifyReleaseBash: trunk push / multi-ref / version-tag are release, feature-branch is not", () => {
+  // trunk pushes (release-class)
+  assert.ok(classifyReleaseBash("git push origin main"), "trunk main");
+  assert.ok(classifyReleaseBash("git push origin master"), "trunk master");
+  assert.ok(classifyReleaseBash("git push origin production"), "trunk production");
+  // multi-ref pushes publish objects the credential never covered
+  assert.ok(classifyReleaseBash("git push --mirror"), "mirror");
+  assert.ok(classifyReleaseBash("git push --all"), "all");
+  assert.ok(classifyReleaseBash("git push --tags"), "tags");
+  assert.ok(classifyReleaseBash("git push --follow-tags"), "follow-tags");
+  // version-tag pushes
+  assert.ok(classifyReleaseBash("git push origin v1.2.3"), "version tag");
+  assert.ok(classifyReleaseBash("git push origin refs/tags/v1"), "tag refspec");
+  // bare push is conservatively release-class (branch unknowable)
+  assert.ok(classifyReleaseBash("git push"), "bare push");
+  // feature-branch push is NOT release-class (this is the over-blocking bug)
+  assert.strictEqual(classifyReleaseBash("git push origin feature/foo"), undefined);
+  assert.strictEqual(classifyReleaseBash("git push origin fix/bar"), undefined);
+  // non-release git subcommands
+  assert.strictEqual(classifyReleaseBash("git commit -m x"), undefined);
+  assert.strictEqual(classifyReleaseBash("git status"), undefined);
+  assert.strictEqual(classifyReleaseBash("git checkout -b feature/x"), undefined);
+  // value-flags: `git -C /tmp/x push` reads subcommand "push", not "/tmp/x"
+  assert.ok(classifyReleaseBash("git -C /tmp/x push origin main"), "git -C push to trunk");
+  // non-git programs
+  assert.strictEqual(classifyReleaseBash("npm test"), undefined);
+  assert.strictEqual(classifyReleaseBash("node --version"), undefined);
+});
+
+test("classifyReleaseBash: gh pr merge / release create / deploy-workflow vs lint workflow", () => {
+  assert.ok(classifyReleaseBash("gh pr merge 42"), "pr merge");
+  assert.ok(classifyReleaseBash("gh release create v1.0.0"), "release create");
+  // only deploy-shaped workflow runs are release-class
+  assert.ok(classifyReleaseBash("gh workflow run deploy.yml"), "deploy workflow");
+  assert.ok(classifyReleaseBash("gh workflow run ship-it"), "ship-it workflow");
+  assert.strictEqual(classifyReleaseBash("gh workflow run lint.yml"), undefined, "lint workflow is NOT release");
+  assert.strictEqual(classifyReleaseBash("gh workflow run test.yml"), undefined, "test workflow is NOT release");
+  // `gh -R owner/repo pr merge` — value-flag parse
+  assert.ok(classifyReleaseBash("gh -R owner/repo pr merge 7"), "gh -R pr merge");
+});
+
+test("classifyReleaseBash: docker compose prod signal is release, plain compose is not", () => {
+  assert.ok(classifyReleaseBash("docker compose -f docker-compose.prod.yml up -d"), "prod compose file");
+  assert.ok(classifyReleaseBash("docker-compose -f docker-compose.production.yml up"), "production compose file");
+  assert.strictEqual(classifyReleaseBash("docker compose up -d"), undefined, "plain compose up is NOT release");
+  assert.strictEqual(classifyReleaseBash("docker compose -f docker-compose.dev.yml up"), undefined, "dev compose is NOT release");
 });
 
 test("deploy patterns catch remote/production commands, not local key tools", () => {
@@ -169,6 +210,28 @@ test("releaseCredentialCheck: doc-adopted and prod-schema findings require their
   assert.ok(releaseCredentialCheck(review, { currentHead: head, docAdopted: false, prodSchemaFinding: true }).gaps.some((g) => g.includes("prod_schema")));
   // unknown current HEAD is a gap (cannot verify the binding)
   assert.ok(releaseCredentialCheck(review, { currentHead: undefined, docAdopted: false, prodSchemaFinding: false }).gaps.some((g) => g.includes("HEAD")));
+});
+
+test("releaseCredentialCheck: prod_schema credential resolves the finding (RELEASE.md: 走五步后写凭据)", () => {
+  const head = "a".repeat(40);
+  // finding detail string flows into the gap message
+  const noPs = releaseCredentialCheck(
+    { review: { head_sha: head, independent: true, note: "测试绿 + 负控制" } },
+    { currentHead: head, docAdopted: false, prodSchemaFinding: "ORM 自动迁移风险(src/data-source.ts 命中 synchronize: true)" }
+  );
+  assert.ok(noPs.gaps.some((g) => g.includes("synchronize: true")), "gap 要带上具体命中的文件/pattern");
+  // a valid prod_schema credential (head_sha bound) RESOLVES the finding
+  const ok = releaseCredentialCheck(
+    { review: { head_sha: head, independent: true, note: "测试绿 + 负控制" }, prod_schema: { head_sha: head } },
+    { currentHead: head, docAdopted: false, prodSchemaFinding: "ORM 自动迁移风险(...)" }
+  );
+  assert.deepStrictEqual(ok, { gaps: [], selfReview: false });
+  // stale prod_schema head_sha does not resolve
+  const stale = releaseCredentialCheck(
+    { review: { head_sha: head, independent: true, note: "测试绿 + 负控制" }, prod_schema: { head_sha: "b".repeat(40) } },
+    { currentHead: head, docAdopted: false, prodSchemaFinding: "ORM 自动迁移风险(...)" }
+  );
+  assert.ok(stale.gaps.some((g) => g.includes("prod_schema")));
 });
 
 test("prod-schema patterns catch auto-migrate, not plain migrate scripts", () => {

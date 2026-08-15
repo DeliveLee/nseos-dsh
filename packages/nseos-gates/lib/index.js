@@ -8,7 +8,7 @@
 
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -459,6 +459,43 @@ export function apply(ctx) {
     }
   });
 
+  // Feedback queue reminder (FB-20260813-005 / nseos-feedback SKILL.md:75): the
+  // only link that does not depend on memory. Fires when ≥3 unsent entries or
+  // the oldest is ≥24h (age taken from the ISO8601 filename stamp, not mtime).
+  // Fail-open: any read error returns "" (never a swallowed reminder is the
+  // point, but a broken queue dir must never break routing).
+  async function unsentFeedbackBlock() {
+    try {
+      const home = homeDir();
+      if (!home) return "";
+      let entries;
+      try {
+        entries = await fs.listDir(await fs.resolve(home + "/.dsh/ai-nseos-feedback"));
+      } catch (e) {
+        return ""; // no queue dir → nothing to remind
+      }
+      const unsent = entries.filter((e) => e.type === "file" && !e.name.startsWith("."));
+      if (unsent.length === 0) return "";
+      let oldestMs = Infinity;
+      for (const e of unsent) {
+        const m = e.name.match(/^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)/);
+        if (!m) continue;
+        const iso = m[1].replace(/(\d{2})-(\d{2})-(\d{2})Z$/, "$1:$2:$3Z");
+        const t = Date.parse(iso);
+        if (!Number.isNaN(t)) oldestMs = Math.min(oldestMs, t);
+      }
+      const count = unsent.length;
+      const oldestH = oldestMs === Infinity ? 0 : (Date.now() - oldestMs) / 3600000;
+      if (count >= 3 || oldestH >= 24) {
+        const age = oldestH >= 24 ? Math.round(oldestH) + "h 前" : "刚刚";
+        return "[nseos] 本机有 " + count + " 条未发送的 nseos 反馈(最早 " + age + "),只存在本机、维护者看不到。要发送走 nseos-feedback(先脱敏、经你确认再发 gh issue);不想发就说一句「不发」,本会话不再提。";
+      }
+      return "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   // ── prompt-routing (每回合首 step 注入) ─────────────────────────────────
   // A one-line anti-drift/discipline pointer injected once per human turn (first
   // step only) so the TDD / report-a-number / independent-review discipline is
@@ -475,13 +512,15 @@ export function apply(ctx) {
       if ((await isBusinessRepo(cwd)) !== true) return next();
       const decision = await next();
       if (decision.kind !== "enter") return decision;
+      const feedbackBlock = await unsentFeedbackBlock();
+      const text = PROMPT_ROUTING_REMINDER + (feedbackBlock ? "\n" + feedbackBlock : "");
       return {
         kind: "enter",
         messages: [
           ...decision.messages,
           createUserMessage({
-            content: [{ type: "text", text: PROMPT_ROUTING_REMINDER }],
-            source: { kind: "plugin", plugin: name, form: "snapshot", sections: [{ name, text: PROMPT_ROUTING_REMINDER }] },
+            content: [{ type: "text", text }],
+            source: { kind: "plugin", plugin: name, form: "snapshot", sections: [{ name, text }] },
           }),
         ],
       };
@@ -511,153 +550,148 @@ export function apply(ctx) {
     }
   });
 
+  // ── 人类批准层(FB-20260814-003 / FB-20260815-001)────────────────────────
+  // marker + release 凭据全是模型可自铸的「自证」,过了只证明模型做了功课,不证明有人授权。
+  // 所以发布/部署必须关到一次真实人类回答上,否则自主长跑能自铸全链条然后推生产
+  // (现场:某业务仓库在 approval=never 下连推 15 版)。
+  // 首选 userQuestions.ask():它不受审批策略影响(never 只关 approval.request() 的弹窗),
+  // 答案直接回到门禁而不是模型(不可自铸),所以即使开了 full access / never,人类也能被问到、
+  // 也必须给出确定答复(选「同意」)才放行。返回 undefined 表示已授权(调用方放行),否则返回 deny。
+  async function humanApprove(exec, kindLabel) {
+    const agent = exec.agent;
+    if (agent === void 0) {
+      return { kind: "deny", reason: "发布/部署类命令需要人类确认,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。" };
+    }
+    if (isSubagent(exec)) {
+      return { kind: "deny", reason: "发布/部署类命令需要人类确认,但子代理没有可对话的人类回答者——请回到编排会话(主会话)发起发布/部署,不要由子代理代推。" };
+    }
+    const userQuestions = ctx.get("userQuestions");
+    if (userQuestions !== undefined) {
+      let answer;
+      try {
+        answer = await userQuestions.ask({
+          questions: [{
+            id: "release-confirm",
+            header: "发布/部署确认",
+            question: kindLabel + "将要执行。是否允许?",
+            options: [
+              { label: "同意", description: "允许执行本次发布/部署命令。" },
+              { label: "拒绝", description: "不执行本次发布/部署命令。" },
+            ],
+          }],
+          agent,
+          signal: exec.signal,
+        });
+      } catch (e) {
+        gateWarn("action-gate userQuestions", e);
+        return { kind: "deny", reason: "发布/部署的人类确认提问失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。" };
+      }
+      if (!releaseConsentGranted(answer)) {
+        return { kind: "deny", reason: "发布/部署未获人类「同意」,未执行任何发布/部署。若要执行,重试并在提问里选「同意」(打字不算,必须点选)。" };
+      }
+      return undefined; // 已授权
+    }
+    // 无 userQuestions 服务时退回 approval.request()(受审批策略影响:never 下确定拒绝)。
+    if (approval === void 0) {
+      return { kind: "deny", reason: "发布/部署类命令需要人类确认,但本部署既未挂载问人类服务、也未挂载审批服务——按 fail-closed 拦截,未执行任何发布/部署。" };
+    }
+    let outcome;
+    try {
+      outcome = await approval.request({
+        agent,
+        toolName: "bash",
+        callId: exec.callId,
+        reason: kindLabel + ",需要人类确认后才能执行。",
+        signal: exec.signal,
+      });
+    } catch (e) {
+      gateWarn("action-gate approval", e);
+      return { kind: "deny", reason: "发布/部署的人类批准请求失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。" };
+    }
+    const denyReason = releaseApprovalDenyReason(outcome);
+    return denyReason === undefined ? undefined : { kind: "deny", reason: denyReason };
+  }
+
   // ── action-gate ─────────────────────────────────────────────────────────
-  // Release/deploy-class bash needs init + a fresh marker + a clean prod-schema
-  // scan; report ALL unmet items in one aggregated deny. The prod-schema scan
-  // is fail-LOUD (a "couldn't see" is never a "clean"): an unknown scan result
-  // denies. The rest is fail-open. DEPLOY_PATTERNS (ssh/scp/rsync/kubectl) are
-  // gated alongside RELEASE_PATTERNS so a session cannot deploy to production
-  // by shelling out while only git push/tag were covered.
+  // Release/deploy-class bash (classified precisely by classifyReleaseBash, NOT
+  // a bare `git push` regex) needs init + a fresh marker + a clean prod-schema
+  // scan + release credential, then a real human approval. The prod-schema
+  // scan is fail-LOUD ("couldn't see" is never "clean"). DEPLOY_PATTERNS
+  // (ssh/scp/rsync/kubectl) are deploy-class regardless of the classifier.
+  // Release/deploy gating applies to ANY git repo — including the preset source
+  // repo (route-work: "绝不豁免 push/merge/tag/发布"); only a non-git directory
+  // is out of scope (nothing to push from).
   ctx.on("tools/pre-execute", async (exec, next) => {
     try {
       if (exec.name !== "bash") return next();
       const cmd = exec.arguments && exec.arguments.command;
       if (typeof cmd !== "string") return next();
-      const isRelease = RELEASE_PATTERNS.some((re) => re.test(cmd));
+      const releaseReason = classifyReleaseBash(cmd);
       const isDeploy = DEPLOY_PATTERNS.some((re) => re.test(cmd));
-      if (!isRelease && !isDeploy) return next();
+      if (releaseReason === undefined && !isDeploy) return next();
       const cwd = cwdOf(exec);
-      const repo = await isBusinessRepo(cwd);
-      if (repo === false) return next(); // definitively not a business repo
-      if (repo !== true) {
-        // fail-loud: a release/deploy command must not silently pass when the
-        // repo type is undeterminable (MIGRATION_PLAN §0.2 #6).
-        return {
-          kind: "deny",
-          reason: "release/deploy 类命令:无法确认当前目录是否为业务仓库(仓库检测出错),按 fail-loud 处理不静默放行——请确认工作目录与 .git 状态后重试。",
-        };
+      const isGit = await hasEntry(cwd, ".git");
+      if (isGit === false) return next(); // 非 git 目录:无可推之物
+      if (isGit !== true) {
+        return { kind: "deny", reason: "release/deploy 类命令:无法确认当前目录是否为 git 仓库,按 fail-loud 处理不静默放行——请确认工作目录与 .git 状态后重试。" };
       }
+      const repo = await isBusinessRepo(cwd);
+      if (repo === undefined) {
+        return { kind: "deny", reason: "release/deploy 类命令:无法确认仓库类型(业务仓 or preset 源),按 fail-loud 处理不静默放行。" };
+      }
+      const kindLabel = isDeploy && releaseReason === undefined
+        ? "部署类命令(ssh/scp/rsync/kubectl)"
+        : "发布类命令(" + (releaseReason || "git push / git tag 等") + ")";
+
+      // preset 源仓库:跳过业务仓工作流检查(无 ai-nseos/init),但仍要人类批准。
+      if (repo === false) {
+        const denied = await humanApprove(exec, kindLabel);
+        return denied === undefined ? next() : denied;
+      }
+
+      // 业务仓库:完整工作流检查。
       const initd = await hasEntry(cwd, "ai-nseos/PROJECT_PROFILE.md");
       const active = await flowActive(exec);
       const scan = await prodSchemaScan(cwd);
+      // scan.finding is NOT an unconditional deny: it requires the prod_schema
+      // credential (walk the five prod-schema steps with the human, then record
+      // it) — the credential resolves it (RELEASE.md: "prod_schema only needed if
+      // the gate reported an ORM auto-sync finding"). Only scan.unknown
+      // ("couldn't see") is fail-loud unconditional.
       let prodSchemaGap;
-      if (scan.finding) prodSchemaGap = "ORM 自动迁移风险(" + scan.finding.file + " 命中 " + scan.finding.pattern + "),先走 prod-schema 五步并与人类确认";
-      else if (scan.unknown) prodSchemaGap = "prod-schema 扫描不完整(无法确认无自动迁移风险),按安全检查 fail-loud 处理";
-      // Release credential (RELEASE.md): independent review + doc + prod_schema,
-      // each bound to head_sha. Only evaluated once the session is in-flow; a
-      // missing/stale credential is aggregated into the same single deny.
+      if (scan.unknown) prodSchemaGap = "prod-schema 扫描不完整(无法确认无自动迁移风险),按安全检查 fail-loud 处理";
+      const findingDetail = scan.finding ? "ORM 自动迁移风险(" + scan.finding.file + " 命中 " + scan.finding.pattern + ")" : undefined;
       let credGaps = [];
       let selfReview = false;
       if (initd && active) {
         const cred = await readReleaseCredential(cwd);
         const currentHead = await gitHead(cwd);
         const docAdopted = await hasEntry(cwd, "docs/domain");
-        const r = releaseCredentialCheck(cred, { currentHead, docAdopted, prodSchemaFinding: scan.finding !== undefined });
+        const r = releaseCredentialCheck(cred, { currentHead, docAdopted, prodSchemaFinding: findingDetail });
         credGaps = r.gaps;
         selfReview = r.selfReview;
       }
-      if (initd && active && prodSchemaGap === undefined && credGaps.length === 0) {
-        if (selfReview) {
-          // Self-review (independent:false) must never be silently packaged as
-          // reviewed. Return a DENY (not "ask"): under DSH's "never" approval
-          // policy, "ask" degrades to a reason-less "用户拒绝了 bash", hiding
-          // WHY and wedging the model. A deny reason always reaches the model,
-          // so it can self-resolve (派独立评审 → independent=true) or ask the
-          // human, without waiting for the policy to change.
-          return {
-            kind: "deny",
-            reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
-          };
-        }
-        // ── 人类批准层(FB-20260814-003 / FB-20260815-001)────────────────
-        // 上面的 marker + release 凭据全是模型可自铸的「自证」,过了只证明模型做了功课,不证明有人授权。
-        // 所以发布/部署必须关到一次真实人类回答上,否则自主长跑能自铸全链条然后推生产
-        // (现场:某业务仓库在 approval=never 下连推 15 版)。
-        // 首选 userQuestions.ask():它不受审批策略影响(never 只关 approval.request() 的弹窗),
-        // 答案直接回到门禁而不是模型(不可自铸),所以即使开了 full access / never,人类也能被问到、
-        // 也必须给出确定答复(选「同意」)才放行——这正是 FB-20260815-001 要的,而不是让模型转述「改回 ask」。
-        const agent = exec.agent;
-        if (agent === void 0) {
-          return {
-            kind: "deny",
-            reason: "发布/部署类命令需要人类确认,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。",
-          };
-        }
-        if (isSubagent(exec)) {
-          return {
-            kind: "deny",
-            reason: "发布/部署类命令需要人类确认,但子代理没有可对话的人类回答者——请回到编排会话(主会话)发起发布/部署,不要由子代理代推。",
-          };
-        }
-        const userQuestions = ctx.get("userQuestions");
-        if (userQuestions !== undefined) {
-          const askKind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "发布类命令(git push / git tag 等)";
-          let answer;
-          try {
-            answer = await userQuestions.ask({
-              questions: [{
-                id: "release-confirm",
-                header: "发布/部署确认",
-                question: askKind + "将要执行。是否允许?",
-                options: [
-                  { label: "同意", description: "允许执行本次发布/部署命令。" },
-                  { label: "拒绝", description: "不执行本次发布/部署命令。" },
-                ],
-              }],
-              agent,
-              signal: exec.signal,
-            });
-          } catch (e) {
-            gateWarn("action-gate userQuestions", e);
-            return {
-              kind: "deny",
-              reason: "发布/部署的人类确认提问失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。",
-            };
-          }
-          if (!releaseConsentGranted(answer)) {
-            return {
-              kind: "deny",
-              reason: "发布/部署未获人类「同意」,未执行任何发布/部署。若要执行,重试并在提问里选「同意」(打字不算,必须点选)。",
-            };
-          }
-          return next();
-        }
-        // 无 userQuestions 服务时退回 approval.request()(受审批策略影响:never 下确定拒绝)。
-        if (approval === void 0) {
-          return {
-            kind: "deny",
-            reason: "发布/部署类命令需要人类确认,但本部署既未挂载问人类服务、也未挂载审批服务——按 fail-closed 拦截,未执行任何发布/部署。",
-          };
-        }
-        let outcome;
-        try {
-          outcome = await approval.request({
-            agent,
-            toolName: "bash",
-            callId: exec.callId,
-            reason: (isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)直连生产" : "发布类命令(git push / git tag 等)") + ",需要人类确认后才能执行。",
-            signal: exec.signal,
-          });
-        } catch (e) {
-          gateWarn("action-gate approval", e);
-          return {
-            kind: "deny",
-            reason: "发布/部署的人类批准请求失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。",
-          };
-        }
-        const denyReason = releaseApprovalDenyReason(outcome);
-        if (denyReason === undefined) return next();
-        return { kind: "deny", reason: denyReason };
+      if (!(initd && active && prodSchemaGap === undefined && credGaps.length === 0)) {
+        const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap }).concat(credGaps);
+        return {
+          kind: "deny",
+          reason:
+            kindLabel + "需本会话在 nseos 流程内(新鲜 flow marker)、无 ORM 自动迁移风险、且 release 凭据覆盖独立评审/文档/生产 schema。当前缺:\n- " +
+            gaps.join("\n- ") +
+            "\n\n注意:flow marker 与 release 凭据是自证/自签,不是人类授权;凭据只在对应真实动作发生后写(自签充数=伪造,比缺更糟)。",
+        };
       }
-      const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap }).concat(credGaps);
-      const kind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "release/deploy 类命令(如 git push / git tag / ssh)";
-      return {
-        kind: "deny",
-        reason:
-          kind + "需本会话在 nseos 流程内(新鲜 flow marker)、无 ORM 自动迁移风险、且 release 凭据覆盖独立评审/文档/生产 schema。当前缺:\n- " +
-          gaps.join("\n- ") +
-          "\n\n注意:flow marker 与 release 凭据是自证/自签,不是人类授权;凭据只在对应真实动作发生后写(自签充数=伪造,比缺更糟)。若本次是真实发布/部署,请先向人类明确确认(问人类工具)并记录答复(FB-20260814-002)。",
-      };
+      if (selfReview) {
+        // Self-review (independent:false) must never be silently packaged as
+        // reviewed. Return a DENY (not "ask"): under DSH's "never" approval
+        // policy, "ask" degrades to a reason-less "用户拒绝了 bash", hiding WHY.
+        return {
+          kind: "deny",
+          reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
+        };
+      }
+      const denied = await humanApprove(exec, kindLabel);
+      return denied === undefined ? next() : denied;
     } catch (e) {
       gateWarn("action-gate", e);
       return next();

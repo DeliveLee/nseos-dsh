@@ -4,22 +4,147 @@
 export const NSEOS_PREFIX = "nseos-";
 export const WINDOW_HOURS = 4;
 
-// Release-class bash: trunk push / merge / release actions. Deliberately
-// conservative — never blocks feature-branch or local work.
-export const RELEASE_PATTERNS = [
-  /\bgit\s+push\b/,
-  /\bgh\s+pr\s+merge\b/,
-  /\bgh\s+workflow\s+run\b/,
-  /\bgh\s+release\s+create\b/,
-  /\bgit\s+tag\b/,
-];
+// ── Release/deploy classification (ported from Claude's _release_class) ──
+// Claude's action-gate distinguishes trunk pushes, multi-ref pushes, version
+// tags, deploy-shaped workflow runs, and prod-target docker compose from
+// ordinary feature-branch/local work. A feature-branch `git push` is NOT
+// release-class; a bare/trunk push, `--mirror/--all/--tags/--follow-tags`, a
+// version-tag push, and deploy/prod commands ARE. A false deny is expensive
+// (it trains the user to disable the gate); a false allow on a real release is
+// a production incident — so the split matters and must be precise, not a bare
+// `\bgit\s+push\b` (which both over-blocks feature branches and under-blocks
+// multi-ref/tag pushes).
 
-// Production-remote / deployment commands. The action-gate treats these like
-// release-class: in a business repo without a fresh flow marker they are
-// denied. This closes the gap where a session could deploy via ssh/scp/rsync/
-// kubectl while only git push/tag were gated (business-repo session FB-20260814-002).
-// `ssh`/`scp`/`rsync` require a following space, so ssh-keygen/ssh-add/
-// ssh-copy-id are not caught.
+export const TRUNK_BRANCHES = new Set(["main", "master", "production"]);
+export const PUSH_MULTIREF_FLAGS = new Set(["--mirror", "--all", "--tags", "--follow-tags"]);
+const VERSION_TAG = /^v?\d+(?:\.\d+)+([-.+][0-9A-Za-z.-]+)?$/;
+const TAG_REFSPEC = /^refs\/tags\//;
+const DEPLOYISH_WORKFLOW = /(?:deploy|release|publish|ship-it|promote|prod|^cd\b|[-_.]cd\b)/i;
+const PRODISH = /(?:prod|production|staging|release)/i;
+const COMPOSE_PROD_FLAGS = new Set(["-f", "--file", "--profile", "--context", "--env-file"]);
+
+// Flags whose NEXT token is a value (not a positional). Skipped so
+// `git -C /tmp/x push` reads the subcommand "push", not "/tmp/x".
+const GIT_VALUE_FLAGS = new Set([
+  "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+  "--super-prefix", "-o", "--push-option", "--repo", "--receive-pack", "--exec",
+]);
+const GH_VALUE_FLAGS = new Set(["-R", "--repo", "-b", "--body", "-t", "--title", "-F", "--body-file"]);
+
+// Split a command into tokens, honoring single/double quotes and backslash.
+function tokenize(cmd) {
+  const out = [];
+  let cur = "";
+  let quote = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === "\\" && i + 1 < cmd.length) {
+      cur += cmd[++i];
+    } else if (/\s/.test(ch)) {
+      if (cur) { out.push(cur); cur = ""; }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// Drop leading env assignments (VAR=value) and the program name itself.
+function programArgs(tokens) {
+  let i = 0;
+  while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
+  if (i < tokens.length) i++; // the program name
+  return tokens.slice(i);
+}
+
+function classifyGitPush(args) {
+  // Multi-ref flags publish objects the current credential never covered.
+  if (args.some((a) => PUSH_MULTIREF_FLAGS.has(a))) {
+    return "git push 多 ref(--mirror/--all/--tags/--follow-tags)";
+  }
+  // Collect positional refspecs (skip flags and their value token).
+  const refspecs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith("-")) { i++; continue; }
+    refspecs.push(a);
+  }
+  // A bare `git push` (no refspec) is conservatively release-class: it pushes
+  // the current branch, which may be trunk, and the gate cannot see it.
+  if (refspecs.length === 0) return "git push(裸推送,无法判定分支,按主干从严)";
+  for (const r of refspecs) {
+    if (TAG_REFSPEC.test(r)) return "git push 标签 refspec " + r;
+    const branch = r.includes(":") ? r.split(":").pop() : r.split("/").pop();
+    if (TRUNK_BRANCHES.has(branch)) return "git push 到主干 " + branch;
+    if (VERSION_TAG.test(branch)) return "git push 版本标签 " + branch;
+  }
+  return undefined; // feature-branch push → not release-class
+}
+
+function classifyGit(args) {
+  let i = 0;
+  while (i < args.length && GIT_VALUE_FLAGS.has(args[i])) i += 2;
+  const sub = args[i];
+  if (sub === "push") return classifyGitPush(args.slice(i + 1));
+  if (sub === "tag") return "git tag(打/推标签属发布)";
+  if (sub === "merge") {
+    const trunk = args.slice(i + 1).filter((a) => !a.startsWith("-")).find((a) => TRUNK_BRANCHES.has(a));
+    return trunk ? "git merge 到主干 " + trunk : undefined;
+  }
+  return undefined;
+}
+
+function classifyGh(args) {
+  let i = 0;
+  while (i < args.length && GH_VALUE_FLAGS.has(args[i])) i += 2;
+  const sub = args[i];
+  if (sub === "pr" && args[i + 1] === "merge") return "gh pr merge(合并到受保护分支)";
+  if (sub === "release" && args[i + 1] === "create") return "gh release create(发版)";
+  if (sub === "workflow" && args[i + 1] === "run") {
+    const name = args[i + 2];
+    // Only deploy-shaped workflow names are release-class; lint/test/CI are not.
+    return name && DEPLOYISH_WORKFLOW.test(name) ? "gh workflow run 部署型流水线 " + name : undefined;
+  }
+  return undefined;
+}
+
+function classifyCompose(args) {
+  // docker compose up/down with a prod signal (prod file/profile/context/env)
+  // is a production deploy. Bounded: only flag on explicit prod markers.
+  const hasProdFlag = args.some((a, idx) =>
+    (COMPOSE_PROD_FLAGS.has(a) && idx + 1 < args.length && PRODISH.test(args[idx + 1]))
+  );
+  const hasProdToken = args.some((a) => PRODISH.test(a) && (a.includes("prod") || a.includes("production") || a.includes("staging")));
+  return hasProdFlag || hasProdToken ? "docker compose 指向生产(prod 信号)" : undefined;
+}
+
+// Returns a human-readable reason when the bash command is release/deploy
+// class, or undefined when it is ordinary feature-branch/local work.
+export function classifyReleaseBash(cmd) {
+  if (typeof cmd !== "string" || cmd.trim() === "") return undefined;
+  const tokens = tokenize(cmd);
+  const prog = tokens.find((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
+  if (!prog) return undefined;
+  const base = prog.split("/").pop();
+  const args = programArgs(tokens);
+  if (base === "git") return classifyGit(args);
+  if (base === "gh") return classifyGh(args);
+  if (base === "docker" || base === "docker-compose" || /docker-compose$/.test(base)) return classifyCompose(args);
+  return undefined;
+}
+
+// Production-remote / deployment commands. These are deploy-class regardless
+// of repo: in a business repo without a fresh flow marker they are denied.
+// This closes the gap where a session could deploy via ssh/scp/rsync/kubectl
+// while only git push/tag were gated (business-repo session FB-20260814-002). `ssh`/
+// `scp`/`rsync` require a following space, so ssh-keygen/ssh-add/ssh-copy-id
+// are not caught.
 export const DEPLOY_PATTERNS = [
   /\bssh\s+/,
   /\bscp\s+/,
@@ -189,8 +314,9 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
     else if (currentHead !== undefined && doc.head_sha.trim().toLowerCase() !== currentHead) gaps.push("doc 的 head_sha 与当前 HEAD 不符");
   }
   if (prodSchemaFinding) {
+    const detail = typeof prodSchemaFinding === "string" ? prodSchemaFinding : "扫描到 ORM 自动迁移风险";
     const ps = credential.prod_schema;
-    if (ps === undefined || ps === null) gaps.push("缺 prod_schema 凭据(扫描到 ORM 自动迁移风险,需先与人类确认)");
+    if (ps === undefined || ps === null) gaps.push("缺 prod_schema 凭据(" + detail + "),先走 prod-schema 五步并与人类确认、再把确认写进凭据");
     else if (typeof ps.head_sha !== "string" || ps.head_sha.trim() === "") gaps.push("prod_schema 缺 head_sha");
     else if (currentHead !== undefined && ps.head_sha.trim().toLowerCase() !== currentHead) gaps.push("prod_schema 的 head_sha 与当前 HEAD 不符");
   }
