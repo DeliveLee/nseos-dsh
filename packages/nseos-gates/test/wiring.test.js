@@ -30,7 +30,7 @@ function makeFs(tree) {
   };
   const stat = async (target) => {
     if (!(target in tree)) return undefined;
-    return { type: Array.isArray(tree[target]) ? "dir" : "file", name: target.split("/").pop() };
+    return { type: Array.isArray(tree[target]) ? "directory" : "file", name: target.split("/").pop() };
   };
   const readText = async (target) => {
     const v = tree[target];
@@ -40,7 +40,7 @@ function makeFs(tree) {
   const listDir = async (dir) => {
     const v = tree[dir];
     if (!Array.isArray(v)) throw new Error("not a dir: " + dir);
-    return v.map((name) => ({ name, type: tree[dir + "/" + name] === null || Array.isArray(tree[dir + "/" + name]) ? "dir" : "file" }));
+    return v.map((name) => ({ name, type: tree[dir + "/" + name] === null || Array.isArray(tree[dir + "/" + name]) ? "directory" : "file" }));
   };
   return { resolve, stat, readText, listDir };
 }
@@ -162,4 +162,52 @@ test("ledger-gate + doc-gate are wired (deny on product-code write without flow)
   assert.strictEqual(lr.kind, "enter", "1st write: ledger-gate not yet at 3 files");
   const dr = await docGate(exec, enter);
   assert.strictEqual(dr.kind, "enter", "no flow marker: doc-gate boundary reminder not armed");
+});
+
+test("ledger-gate: 3rd distinct product-code write without a ledger denies once", skip, async () => {
+  const { ctx, handlers } = makeCtx(makeFs(businessRepoTree()));
+  apply(ctx);
+  const ledgerGate = handlers.get("tools/pre-execute")[2];
+  const write = (fp) => makeExec({ name: "write", file_path: fp, sessionId: "s1", cwd: "/repo" });
+  assert.strictEqual((await ledgerGate(write("/repo/src/a.ts"), enter)).kind, "enter", "1st file");
+  assert.strictEqual((await ledgerGate(write("/repo/src/b.ts"), enter)).kind, "enter", "2nd file");
+  const third = await ledgerGate(write("/repo/src/c.ts"), enter);
+  assert.strictEqual(third.kind, "deny", "3rd file must trigger the ledger question");
+  assert.ok(third.reason.includes("账本"), "deny reason must name the ledger question");
+  // one-shot: a 4th write is not denied again (nudged latch)
+  assert.strictEqual((await ledgerGate(write("/repo/src/d.ts"), enter)).kind, "enter", "4th file: one-shot");
+});
+
+test("doc-gate: glossary-armed-but-uncleared feature denies product-code write", skip, async () => {
+  const tree = {
+    ...businessRepoTree(),
+    "/repo/docs/domain/GLOSSARY.md": "# Glossary",
+    "/repo/ai-nseos/state/features": ["f1"],
+    "/repo/ai-nseos/state/features/f1": [".gate-armed"],
+    "/repo/ai-nseos/state/features/f1/.gate-armed": "",
+  };
+  const { ctx, handlers } = makeCtx(makeFs(tree));
+  apply(ctx);
+  const docGate = handlers.get("tools/pre-execute")[3];
+  const exec = makeExec({ name: "write", file_path: "/repo/src/index.ts", sessionId: "s1", cwd: "/repo" });
+  const r = await docGate(exec, enter);
+  assert.strictEqual(r.kind, "deny", "glossary-armed uncleared feature must deny product code");
+  assert.ok(r.reason.includes("术语"), "deny reason must name the glossary/term gate");
+});
+
+test("action-gate: prod-schema scan unknown (unreadable candidate) is fail-loud deny", skip, async () => {
+  const now = new Date().toISOString();
+  const tree = {
+    "/repo/.git": null,
+    "/repo/ai-nseos/PROJECT_PROFILE.md": "Delivery mode: interactive",
+    "/repo/ai-nseos/state/flow/s1.json": JSON.stringify({ session_id: "s1", started_at: now, mode: "x", contract: "x" }),
+    "/repo/package.json": ["unreadable"], // present but readText returns undefined → unknown
+  };
+  const { ctx, handlers } = makeCtx(makeFs(tree));
+  apply(ctx);
+  const actionGate = handlers.get("tools/pre-execute")[1];
+  const exec = makeExec({ name: "bash", command: "git push origin main", sessionId: "s1", cwd: "/repo" });
+  const r = await actionGate(exec, enter);
+  assert.strictEqual(r.kind, "deny", "prod-schema unknown must be fail-loud deny, never a silent allow");
+  assert.ok(r.reason.includes("prod-schema"), "deny reason must name the prod-schema unknown");
 });
