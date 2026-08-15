@@ -9,7 +9,7 @@
     "./core": "./lib/core.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "ln -sfn \"$HOME/.dsh/profiles/node_modules\" node_modules && node --test; rm -f node_modules"
   },
   "files": [
     "lib/index.js",

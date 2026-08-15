@@ -38,7 +38,7 @@
 
 ## D4 · 复杂度预算
 
-- **反 Codex 硬不变量(不可越线)**:自建持久化 schema ≤ 1(仅 flow-marker);**无状态机**(不论语言);无第二个状态文件;门禁测试 ≤ 100 个 test 块。
+- **反 Codex 硬不变量(不可越线)**:自建有生命周期的状态组件 ≤ 1(仅 flow-marker:4h 新鲜度/归属/跨会话 deny);**无状态机**(不论语言);无第二个状态文件;**门禁测试 ≤ 100 个 test 块**。其余持久化 JSON(`.release-ready.json` 的 review/doc/prod_schema 凭据、`.gate-armed`/`ambiguity-cleared`/`.impl-boundary-ack`)是**无状态 attestation/ack 标记**——无 TTL、无迁移、无生命周期转换、每次 release 对着当前 HEAD 重新校验,head_sha 不符只报 gap 不回滚;它们不是「有生命周期的状态组件」,不计入本条。
 - **JS 行数预算(诚实重估,v0.13.0)**:原「≤1000 行」在 v0.13.0 精确化 action-gate 后超线(实测 lib 1193 行)。重估为「机器层 JS ≤ 1500 行;纯谓词 `core.js` ≤ 500 行」。行数超的不是状态机逻辑,而是 (a) 精确分类器(移植 Claude `_release_class`,约 130 行,替换原 5 条粗糙正则——这是精度修复不是膨胀);(b) 必要的人类可读 deny/注入文案。**行数是「别过度工程」的代理,不是过度工程本身**——挪目录/删文案不能假装达标,判据是「没有状态机、没有第二个 schema、谓词保持纯函数」。
 - 若未来长出「跨会话恢复 / 迁移 / 回滚」诉求,那是 `goals` 的事,不是本组件的扩展理由(见 `FLOW_MARKER_CONTRACT.md` §7)。
 
