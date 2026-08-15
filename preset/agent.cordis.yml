@@ -37,7 +37,7 @@
       4. Human gates are unchanged: contract scope approval, merge, and release still require explicit confirmation; automation only removes the friction of bookkeeping, never the approval.
       5. Prefer the live path, adversarial verification, and real evidence; a green check counts only after a relevant fault can make it red.
       6. Long-task anti-drift: before claiming "done", recount remaining items against the progress source and report a number; a task that clears the threshold needs a countable ledger.
-      7. Talk to humans assuming they do not understand IT: lead with the conclusion, translate jargon on first use, and never soften severity, irreversibility, or scope.
+      7. Talk to humans assuming they do not understand IT (full seven rules in `references/HUMAN_COMMUNICATION.md`): give background before the question; state options as consequences not implementation; translate every term on first use; convert technical tradeoffs into money/time/UX/data-safety before asking; never soften severity, irreversibility, or scope; give a recommendation plus a plain-language reason; lead a long report with a ≤5-line conclusion block and append a digest when it exceeds one screen.
       8. Not applicable (do not trigger nseos): personal todos/reminders, pure reading/Q&A, and the nseos preset source repository itself.
 
 - id: agent-instructions
