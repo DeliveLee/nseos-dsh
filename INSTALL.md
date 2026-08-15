@@ -63,7 +63,7 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 - 替换 4 个 skill 里 DSH 不支持的 `$ARGUMENTS` 占位符;`AUDIT.md` 标注为过期快照。
 
 **机器层(P1)**:
-- **action-gate 精确化**(移植 Claude `_release_class`):`git push origin feature/foo` 不再误拦(原 `\bgit\s+push\b` 拦所有 push);补上漏拦的 `--mirror/--all/--tags/--follow-tags` 多 ref、版本 tag、`gh workflow run <deploy>`(lint/test 不拦)、docker compose prod 信号。既少误伤、又少漏拦。
+- **action-gate 精确化 + 分支感知**(忠实移植 Claude `_release_class`/`_push_targets`):`git push origin feature/foo` 不再误拦(原 `\bgit\s+push\b` 拦所有 push);补上漏拦的 `--mirror/--all/--tags/--follow-tags` 多 ref、版本 tag、`gh workflow run <deploy>`(lint/test 不拦)、docker compose prod 信号。**第二轮代码正确性评审实跑反例后补的根修**:分类器此前是「分支盲」,漏放行 `git merge feature/x`(主干上)、`git push origin HEAD`、`HEAD:refs/heads/main`、`--delete main`、`--git-dir=/x`、`gh workflow run --repo x deploy.yml`,又误拦 `git merge main`(feature 上)、本地 `git tag`、feature 上裸 push;现按当前分支(`.git/HEAD`,跟 gitdir 指针支持 worktree)判定,漏放行/误拦双修。
 - **修源仓库豁免 bug**:`git push`/release 在 preset 源仓库不再直接放行——仍走人类批准层(route-work「绝不豁免 push」),只有非 git 目录才放行。
 - **修 prod_schema 凭据死代码**:扫描到 ORM 风险不再无条件 deny,改为要求 `prod_schema` 凭据(走五步+人类确认+写凭据)可消解,与 RELEASE.md 语义一致;只有「扫不动」才 fail-loud。
 - **feedback 每轮提醒**:prompt-routing 注入加队列计数(≥3 条或最早 ≥24h),兑现 `nseos-feedback` 早已宣称、代码里没有的那条链路。
