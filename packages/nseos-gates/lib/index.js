@@ -8,7 +8,7 @@
 
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -58,6 +58,13 @@ export const inject = [];
 export function apply(ctx) {
   const fs = ctx.get("fs");
   if (fs === undefined) return;
+  // The approval service is the one non-model-mintable human-confirmation
+  // channel. The action-gate escalates release/deploy to it (FB-20260814-003)
+  // so an autonomous long-run under approval=never cannot self-mint
+  // marker+credential and push to production. Undefined in a minimal
+  // composition; the gate then fails closed on release/deploy rather than
+  // silently allowing.
+  const approval = ctx.get("approval");
 
   // Register the read-only reviewer subagent backend. The spawn backend already
   // runs a child with zero parent context; this provider additionally removes
@@ -542,7 +549,43 @@ export function apply(ctx) {
             reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
           };
         }
-        return next();
+        // ── 人类批准层(FB-20260814-003)─────────────────────────────────
+        // 上面的 marker + release 凭据全是模型可自铸的「自证」,过了只证明模型做了功课,不证明有人授权。
+        // 唯一不可自铸的通道是 DSH 审批服务:never 下它确定性拒绝(没人可问),ask 下才真正弹窗。
+        // 所以发布/部署必须关到一次真实人类批准上,否则自主长跑能自铸全链条然后推生产
+        // (现场:某业务仓库在 approval=never 下连推 15 版)。
+        if (approval === void 0) {
+          return {
+            kind: "deny",
+            reason: "发布/部署类命令需要人类批准,但本部署未挂载审批服务,无法取得确认——按 fail-closed 拦截,未执行任何发布/部署。",
+          };
+        }
+        const agent = exec.agent;
+        if (agent === void 0) {
+          return {
+            kind: "deny",
+            reason: "发布/部署类命令需要人类批准,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。",
+          };
+        }
+        let outcome;
+        try {
+          outcome = await approval.request({
+            agent,
+            toolName: "bash",
+            callId: exec.callId,
+            reason: (isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)直连生产" : "发布类命令(git push / git tag 等)") + ",需要人类确认后才能执行。",
+            signal: exec.signal,
+          });
+        } catch (e) {
+          gateWarn("action-gate approval", e);
+          return {
+            kind: "deny",
+            reason: "发布/部署的人类批准请求失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。",
+          };
+        }
+        const denyReason = releaseApprovalDenyReason(outcome);
+        if (denyReason === undefined) return next();
+        return { kind: "deny", reason: denyReason };
       }
       const gaps = releaseGaps({ initd, flowActive: active, prodSchema: prodSchemaGap }).concat(credGaps);
       const kind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "release/deploy 类命令(如 git push / git tag / ssh)";

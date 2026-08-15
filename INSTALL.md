@@ -53,6 +53,16 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.8.0 — 2026-08-14 发布/部署强制人类批准 + 产品/UX 纳入流程硬步骤
+
+**门禁(`@deliveli/nseos-gates`)**:
+- action-gate 新增「人类批准层」(FB-20260814-003):发布/部署命令在通过 marker+凭据自证检查后,还要关到一次真实人类批准上——`approval=never` 下确定性拒绝(模型无法自铸绕过,只能请人类把审批策略改回 ask),`ask` 下弹真实审批。修的是现场事故:某业务仓库「继续开发AI功能交接会话」在 `approval=never` + 自主长跑下连推 v2.90.0→v2.90.14 共 15 版上生产。新增纯谓词 `releaseApprovalDenyReason`(`allowed-once` 是唯一放行,其余 fail-closed)。
+- 诚实边界:审批策略仍是人控的硬边界,门禁现在把「发布/部署在 never 下不可绕过」做实;但「ask 下弹窗」依赖部署挂载了审批服务——未挂载时 fail-closed 拦截。
+
+**技能**:
+- `nseos-plan-feature` 第 6.5 步(FB-20260814-004):用户可见界面功能必须在计划阶段跑 `product-ux-redesign`(必要时先 `requirements-discovery`)产出 UX 模型(用户旅程 + 交互 + 视觉/一致性约束)并纳入合同,`Complex`/`Exceptional` 不得跳过。
+- `nseos-review-feature` 第 5 步:产品性(好不好用/好不好看/交互顺畅)纳入评审发现维度,与功能正确性并列。
+
 ### v0.7.2 — 2026-08-14 自审(independent=false)从 ask 改为 deny+理由
 
 - action-gate 的 `review.independent=false`(自审) 由 `{kind:"ask"}` 改为 `{kind:"deny"}` 并带两条解法。原因:DSH 的 `never` 审批策略会把「ask」转成一句无理由的「用户拒绝了 bash」,模型的 release 被卡死却看不到「自审→派独立评审→independent=true 就解锁」。deny 的理由永远回到模型眼前,它能自解,不必等你改策略(现场:某业务仓库「继续开发AI功能交接会话」卡住 30 分钟)。

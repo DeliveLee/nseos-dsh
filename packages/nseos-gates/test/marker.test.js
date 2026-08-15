@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -85,6 +85,19 @@ test("deploy patterns catch remote/production commands, not local key tools", ()
   assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-keygen -t ed25519")), false);
   assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-add ~/.ssh/id_ed25519")), false);
   assert.strictEqual(DEPLOY_PATTERNS.some((re) => re.test("ssh-copy-id mp")), false);
+});
+
+test("releaseApprovalDenyReason: allowed-once is the only grant; never/reject/cancel/unavailable deny with guidance", () => {
+  assert.strictEqual(releaseApprovalDenyReason("allowed-once"), undefined);
+  // rejected must name the "never" root cause and the "改回 ask" remedy, so the
+  // model can un-wedge itself instead of retrying blindly (FB-20260814-003).
+  const rejected = releaseApprovalDenyReason("rejected");
+  assert.ok(rejected.includes("never"), "拒绝理由要指出 never 策略这条根因");
+  assert.ok(rejected.includes("ask"), "拒绝理由要给出改回 ask 的解法");
+  assert.ok(releaseApprovalDenyReason("cancelled").includes("取消"));
+  assert.ok(releaseApprovalDenyReason("unavailable").includes("fail-closed"));
+  // any unknown outcome is fail-closed, never a silent grant
+  assert.ok(releaseApprovalDenyReason("bogus").includes("bogus"));
 });
 
 test("releaseGaps aggregates every unmet item", () => {

@@ -198,6 +198,23 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
   return { gaps, selfReview };
 }
 
+// The release/deploy gate's final human-approval decision. 'allowed-once' is
+// the ONLY grant; every other outcome denies with a reason that tells the model
+// exactly what to do next. Pure so the table is unit-tested without a runtime.
+// The approval service is the one channel the model cannot self-mint: under
+// 'never' it auto-rejects (no human reachable), under 'ask' it surfaces a real
+// prompt. Anything reaching this gate has already passed the self-mintable
+// homework (marker + credential + scan); this is the layer that closes the 某业务仓库
+// hole (15 versions pushed under approval=never, FB-20260814-003).
+export function releaseApprovalDenyReason(outcome) {
+  switch (outcome) {
+    case "allowed-once": return undefined;
+    case "rejected": return "发布/部署未获人类批准。若当前审批策略是 never(审批弹窗被关),模型无法取得真实授权——请人类把审批策略改回 ask 后再重试;若是人类主动拒绝,请尊重决定并停止,不要换写法重试。";
+    case "cancelled": return "发布/部署的人类确认被取消,未执行任何发布/部署。";
+    default: return "发布/部署的人类确认不可用(" + outcome + "),按 fail-closed 拦截,未执行任何发布/部署。";
+  }
+}
+
 // ORM auto-sync markers that can silently alter a production schema. A release
 // must fail loud on these (a security check where "couldn't see" is never
 // "clean"). Bounded candidate set, checked in index.js.
