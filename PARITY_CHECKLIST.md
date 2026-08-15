@@ -3,7 +3,11 @@
 > 每条判据 = **可自动化的负控制**(证明「该 deny/注入/校验真的发生」,不是「能跑/能看到」)。
 > 原则:绿色证据只在「相关故障能让它变红」之后才算数。状态在 P6 收口前逐项填 `PASS`/`FAIL`/`PENDING`。
 
-> **验证进度(v0.13.0)**:两条证据层次——① 纯谓词负控制(核心语义会不会 deny,`test/marker.test.js`,29 项);② 接线层负控制(门真的 armed,`test/wiring.test.js`,5 项,mock fs/ctx 证明 handler 真 deny/allow)。#6 skill-gate、#8 action-gate 已有①②两层;#2 reviewer 只读、#10 marker 五态、#12 release 凭据、#15 fail-open 有①层(谓词)缺②层(接线);其余需真实 NSEOS 会话做「故意注入 → 门真 deny → 清除 → 放行」活路径验收(手工程序见 `VERIFICATION_STATUS.md`)。
+> **验证进度(v0.13.0,经对抗评审修正)**:两条证据层次——① 纯谓词负控制(核心语义会不会 deny,`test/marker.test.js`,31 项,只 import core.js);② 接线层负控制(门真的 armed,`test/wiring.test.js`,5 项,mock fs/ctx 证明 handler 真 deny/allow)。
+> - **有①②两层**:#6 skill-gate(deny+放行)、#8 action-gate(trunk deny + feature-branch 放行)。
+> - **只有①层(谓词,缺接线)**:#10 marker 五态、#12 release 凭据、#16 复杂度预算(classifyReleaseBash 等谓词)——这些的核心谓词在 core.js 有负控制,但对应的 `tools/pre-execute` handler 分支未在 wiring.test 里覆盖。
+> - **零层(既无谓词测试也无接线测试)**:#2 reviewer 只读(provider 在 index.js 未测)、#15 fail-open/kill-switch(gateWarn 与逃生舱无测试)——评审点名此二项此前被误标为「有①层」。
+> - 其余(#1/#3/#4/#5/#7/#9/#11/#13/#14/#17/#18)需真实 NSEOS 会话做「故意注入 → 门真 deny → 清除 → 放行」活路径验收(手工程序见 `VERIFICATION_STATUS.md`)。
 
 | # | 对等项 | 机械判据(负控制) | 状态 |
 |---|---|---|---|

@@ -67,13 +67,16 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 - **修源仓库豁免 bug**:`git push`/release 在 preset 源仓库不再直接放行——仍走人类批准层(route-work「绝不豁免 push」),只有非 git 目录才放行。
 - **修 prod_schema 凭据死代码**:扫描到 ORM 风险不再无条件 deny,改为要求 `prod_schema` 凭据(走五步+人类确认+写凭据)可消解,与 RELEASE.md 语义一致;只有「扫不动」才 fail-loud。
 - **feedback 每轮提醒**:prompt-routing 注入加队列计数(≥3 条或最早 ≥24h),兑现 `nseos-feedback` 早已宣称、代码里没有的那条链路。
-- **8 个 agent 角色卡从死文件变活**:`nseos-route-work` 新增硬指引——派角色子代理前先 `read agents/<role>.md` 作为 prompt 前缀。
+- **8 个 agent 角色卡从完全死文件改为软指引**:`nseos-route-work` 新增指引——派角色子代理前先 `read agents/<role>.md` 作为 prompt 前缀。**诚实标注:这是软指引,不是机器强制**;Claude 版 `registerProvider`+只读工具集的机器强制仍未做(见 `GAP_ANALYSIS.md` §七)。
 
 **验证(P3)**:
 - 新增 `test/wiring.test.js`:mock fs/ctx 捕获四个 `tools/pre-execute` handler,证明 skill-gate 真 deny、action-gate 真放行 feature-branch 且真 deny 主干、ledger/doc-gate 真接线。此前接线层 0 覆盖(纯谓词 29 项测试证明「谓词会 deny」,但「门真的 armed」从未被证明)。
 - `package.json` 加 `test` script + 版本 0.13.0;测试 29→34(纯谓词 + 接线)。接线测试在 peer deps 不可解析时 self-skip。
 
-**尚未落地(见 `GAP_ANALYSIS.md` P2)**:nseos-setup/upgrade + stale 三态、HUMAN_COMMUNICATION 每轮注入、reviewer 只读沙箱(现为 toolFilter denylist)、PARITY_CHECKLIST 18 项活会话验收。
+**尚未落地(见 `GAP_ANALYSIS.md` §七,经两轮对抗评审修正)**:
+- **8 个 agent 的机器强制**(`registerProvider` + 只读工具集/沙箱)——当前只有软指引。
+- **stale 三态机器自检**——当前是维护流程里手动 diff 哨兵(DSH 无 hook 接线层,合理降级)。
+- **PARITY_CHECKLIST 剩余项活会话验收 + 接线测试扩展**(humanApprove/prod-schema-unknown/ledger-第3文件/doc-gate术语门 等未覆盖分支)。
 
 ### v0.12.0 — 2026-08-15 「根因是假设,先证明再动手」——治「自以为知道根因、完全不调查」
 

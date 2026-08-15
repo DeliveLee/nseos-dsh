@@ -187,11 +187,12 @@ Claude 版历史(`Hermes/Projects/nseos.md`)早已建立的标准动作是**「�
 
 ---
 
-## 七、待办状态(2026-08-15 第二轮更新)
+## 七、待办状态(2026-08-15 第三轮更新,经两轮对抗评审修正)
 
 - [x] P0(内容层):去重 3 对 reference / 修 6 处断链 / 统一命名 / 替换 4 处 `$ARGUMENTS`
-- [x] P1 机器层:action-gate 精确化 + 修源仓库豁免 bug + 修 prod_schema 死代码 + feedback 每轮提醒 + 8 个 agent 角色卡从死文件变活
-- [x] P2:HUMAN_COMMUNICATION 七条压缩版进 persona;reviewer 只读确认为 toolFilter 真机器边界(DECISIONS D3 修正,sandbox 级需改 DSH 驱动=过度实现);upgrade/stale 已由 nseos-maintain Step 9(diff 哨兵 + cp -R 滞后提示)覆盖;复杂度预算 D4 诚实重估
-- [x] P3 第一批:门禁接线层测试 + `package.json` test script + CI workflow + PARITY_CHECKLIST 标注两层证据
-- [ ] P3 第二批(需真实业务仓会话):PARITY_CHECKLIST 剩余项的「故意注入 → 门真 deny → 清除 → 放行」活路径验收(程序见 VERIFICATION_STATUS.md)
-- [ ] 重新挂载:改门禁代码后重跑 INSTALL.md 第 1/2 步 `cp -R`
+- [x] P1 机器层:**4 个代码级 bug 真关了**(action-gate 精确化 / 修源仓库豁免 bug / 修 prod_schema 死代码 / feedback 每轮提醒)——评审确认有代码有测试、旧正则全仓零残留
+- [~] **8 个 agent 角色卡:从「完全死文件」改为「软指引」**(route-work 指示先 read `agents/<role>.md` 再派子代理)。**诚实标注:这是软指引,不是机器强制**——Claude 版的 `registerProvider` + 只读工具集/沙箱的机器强制仍未做(评审点名:软指引冒充机器实现)。是否补机器强制需另评估,当前是「把空名头变成有文件可读」。
+- [~] **upgrade/stale:是「维护流程里的手动 diff 哨兵验证」(nseos-maintain Step 9),不是机器自动自检**。Claude 的「每回合 stale 自检提醒」在 DSH 无等价物(DSH 无 hook 接线层),这是合理降级,但诚实标注为「手动」。
+- [x] P2:HUMAN_COMMUNICATION 七条压缩版进 persona;reviewer 只读确认为 toolFilter 真机器边界;sandbox 级需改 DSH 驱动=过度实现;D4 硬不变量精确为「有生命周期状态组件 ≤1」
+- [x] P3 第一批:门禁接线层测试(5 块)+ `npm test`(自动建 symlink,不再 self-skip)+ CI + PARITY 标注两层证据
+- [ ] P3 第二批(需真实业务仓会话):PARITY_CHECKLIST 剩余项「故意注入 → 门真 deny → 清除 → 放行」活路径验收;以及接线测试扩展到 humanApprove/prod-schema-unknown/ledger-第3文件/doc-gate术语门 等未覆盖分支(评审点名「接线覆盖不足」)
