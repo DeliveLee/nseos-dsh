@@ -53,6 +53,18 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.9.0 — 2026-08-15 子代理零输出降级指引 + 审批=never 死路的人类可见恢复
+
+**门禁(`@deliveli/nseos-gates`)**:
+- `releaseApprovalDenyReason("rejected")` 重写(FB-20260815-001):明说「对话里打字说允许不算授权——门禁只认审批弹窗的真实点击」,并给模型一段**一字不改**转给人类的话。此前这条恢复指引只写给模型、靠模型转述,转述有损耗,形成「人类已说允许、模型却怎么都推不出去」的死路;现在人类能直接看到恢复动作(把审批策略改回 ask),不再经过模型翻译。
+- 每回合纪律指针(prompt-routing)第①条新增子代理零输出降级(FB-20260814-005):`feature-developer` 子代理多轮零文件输出时,降级为主会话直接实现 + `.impl-boundary-ack` 记越界 + 独立评审兜底,不再无信号等待。
+
+**技能/引用**:
+- `nseos-build-feature` Step 5:子代理多轮零文件输出列为「必须直接改」的正当情形,降级实现并把越界记录作为独立评审必查项。
+- `AUTONOMY_POLICY` 实现边界行:补唯一例外(子代理多轮零输出的降级出口),并强调这不是放宽边界。
+
+**测试**:`releaseApprovalDenyReason` 增 2 条断言(对话文字授权不算数 + 一字不改转达),共 25 测试全绿。
+
 ### v0.8.0 — 2026-08-14 发布/部署强制人类批准 + 产品/UX 纳入流程硬步骤
 
 **门禁(`@deliveli/nseos-gates`)**:

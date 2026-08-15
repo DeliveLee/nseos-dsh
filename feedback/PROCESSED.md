@@ -17,3 +17,9 @@
 
 ## FB-20260814-004 — 流程缺产品/UX/视觉设计环节,交付物「能用但不好用」
 - Disposition: FIXED@0.8.0 — `nseos-plan-feature` 第 6.5 步:用户可见界面功能必须在计划阶段跑 `product-ux-redesign` 产出 UX 模型(用户旅程 + 交互 + 视觉约束)并纳入合同,`Complex`/`Exceptional` 不得跳过;`nseos-review-feature` 第 5 步把产品性(好不好用/好不好看/交互顺畅)纳入发现维度,与功能正确性并列。
+
+## FB-20260814-005 — feature-developer 子代理在业务仓库多次零输出卡住
+- Disposition: FIXED@0.9.0 — prompt-routing 每回合指针第①条与 `nseos-build-feature` Step 5 新增降级出口:子代理多轮零文件输出(目标目录没建、`list_agents` 一直 running)时,主会话直接实现(测试驱动)+ 在 `.impl-boundary-ack` 记越界 + 独立评审必查,不再无信号等待。`AUTONOMY_POLICY` 实现边界行补唯一例外并强调非放宽。注意:根因(DSH 子代理零输出)属运行时行为,本次修的是「交子代理不再变成无信号等待」这一面,运行时零输出的排查不在 preset 内。
+
+## FB-20260815-001 — 审批策略=never 时发布/部署门禁没有人类授权路径
+- Disposition: FIXED@0.9.0 — `releaseApprovalDenyReason("rejected")` 重写:明说「对话打字说允许不算授权,门禁只认审批弹窗点击」,并给模型一段一字不改转给人类的话,把「改回 ask」这条恢复动作直接摆到人类眼前,不再靠模型转述(转述有损耗)。未采用「文字授权升级」方案——那会重开 FB-20260814-003 堵上的口子(模型可自铸「人类说允许」),审批弹窗是唯一不可自铸的授权通道,这条硬边界保留。

@@ -209,7 +209,7 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
 export function releaseApprovalDenyReason(outcome) {
   switch (outcome) {
     case "allowed-once": return undefined;
-    case "rejected": return "发布/部署未获人类批准。若当前审批策略是 never(审批弹窗被关),模型无法取得真实授权——请人类把审批策略改回 ask 后再重试;若是人类主动拒绝,请尊重决定并停止,不要换写法重试。";
+    case "rejected": return "发布/部署未获人类批准,未执行任何发布/部署。对话里打字说「允许/同意」不算授权:本门禁只认审批弹窗的真实点击(这是防止模型自说自话替你授权的硬边界),不要靠复述对话里的同意去重试。请把下面这段一字不改放进你给人类的下一条消息,不要转述、不要改写:\n「这次发布/部署被拦下了。最常见的原因:你把这个会话的审批策略设成了 never(审批弹窗被关),我这边弹不出授权窗口。要让这次发布真正执行:请把本会话的审批策略改回 ask(在界面里重新打开审批弹窗),改好后告诉我,我重试时你会看到弹窗、在弹窗里点允许即可。如果你刚才是主动点了拒绝,请直接告诉我,我尊重你的决定、不再重试。」";
     case "cancelled": return "发布/部署的人类确认被取消,未执行任何发布/部署。";
     default: return "发布/部署的人类确认不可用(" + outcome + "),按 fail-closed 拦截,未执行任何发布/部署。";
   }

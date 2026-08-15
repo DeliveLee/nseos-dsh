@@ -116,7 +116,7 @@
 |---|---|
 | 活路径验证标准 | 真实 UI / CLI / HTTP / DB 回读。读代码 + 绿单测不构成活路径证据。 |
 | `PENDING_LIVE_VERIFY` 规则 | 缺活路径证据即进该状态；每一项推迟都是 `FEATURE_STATE.md` 里的具名 PENDING 行，不是报告里的一句叙述。挂起不能用来代替 PENDING 行。 |
-| 实现边界 | 产品码与测试码交 `feature-developer` subagent；编排会话只做审查、验证、发布。**无人监督时更容易越界直改产品码，这条因此更紧而不是更松。** |
+| 实现边界 | 产品码与测试码交 `feature-developer` subagent；编排会话只做审查、验证、发布。**无人监督时更容易越界直改产品码，这条因此更紧而不是更松。** 唯一例外是子代理多轮零文件输出（目标目录没建、`list_agents` 一直 running）——此时降级为编排会话直接实现并留 `.impl-boundary-ack` 越界记录 + 独立评审必查（FB-20260814-005），这不是放宽边界，而是给无信号的等待一个有记录的出口。 |
 | Loop 预算 | `LOOP_AND_SCOPE_POLICY.md` 的 Small/Standard/Complex 预算不变；耗尽即 `BLOCKED`。「自主模式所以多跑几轮」不成立。 |
 | 发布门 | `ai-nseos-action-gate` 判据一字不改，它就是最终验收的机器执行点。 |
 | Anti-patterns | 「为了让测试通过而删除/跳过/弱化测试」等全部照旧禁止。 |

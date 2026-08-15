@@ -94,6 +94,11 @@ test("releaseApprovalDenyReason: allowed-once is the only grant; never/reject/ca
   const rejected = releaseApprovalDenyReason("rejected");
   assert.ok(rejected.includes("never"), "拒绝理由要指出 never 策略这条根因");
   assert.ok(rejected.includes("ask"), "拒绝理由要给出改回 ask 的解法");
+  // FB-20260815-001: chat-text authorization must not unlock the gate, and the
+  // reason must hand the model a verbatim human-facing block (not a paraphrase
+  // the model re-words and loses) — the only non-lossy recovery path.
+  assert.ok(rejected.includes("不算授权"), "拒绝理由要明说对话文字授权不算数");
+  assert.ok(rejected.includes("一字不改"), "拒绝理由要给出一字不改转达的指令");
   assert.ok(releaseApprovalDenyReason("cancelled").includes("取消"));
   assert.ok(releaseApprovalDenyReason("unavailable").includes("fail-closed"));
   // any unknown outcome is fail-closed, never a silent grant
