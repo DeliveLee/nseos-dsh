@@ -198,14 +198,15 @@ export function releaseCredentialCheck(credential, { currentHead, docAdopted, pr
   return { gaps, selfReview };
 }
 
-// The release/deploy gate's final human-approval decision. 'allowed-once' is
-// the ONLY grant; every other outcome denies with a reason that tells the model
-// exactly what to do next. Pure so the table is unit-tested without a runtime.
-// The approval service is the one channel the model cannot self-mint: under
-// 'never' it auto-rejects (no human reachable), under 'ask' it surfaces a real
-// prompt. Anything reaching this gate has already passed the self-mintable
-// homework (marker + credential + scan); this is the layer that closes the 某业务仓库
-// hole (15 versions pushed under approval=never, FB-20260814-003).
+// The release/deploy gate's human-approval decision for the approval.request()
+// FALLBACK path — used only when the userQuestions service is unavailable.
+// 'allowed-once' is the ONLY grant; every other outcome denies with a reason
+// that tells the model exactly what to do next. Pure so the table is
+// unit-tested without a runtime. The approval service is a channel the model
+// cannot self-mint, BUT it is gated by the session approval policy: under
+// 'never' it auto-rejects (no human reachable). That is exactly the wedge
+// FB-20260815-001 reported, so the PRIMARY path now asks through
+// userQuestions.ask() (releaseConsentGranted below) which is NOT policy-gated.
 export function releaseApprovalDenyReason(outcome) {
   switch (outcome) {
     case "allowed-once": return undefined;
@@ -213,6 +214,18 @@ export function releaseApprovalDenyReason(outcome) {
     case "cancelled": return "发布/部署的人类确认被取消,未执行任何发布/部署。";
     default: return "发布/部署的人类确认不可用(" + outcome + "),按 fail-closed 拦截,未执行任何发布/部署。";
   }
+}
+
+// Pure predicate: did the human grant the release/deploy confirmation? The gate
+// asks through userQuestions.ask() (NOT approval.request()) so a definite human
+// answer is required even under approval=never / full-access sandbox
+// (FB-20260815-001). Only the explicit "同意" option grants; a missing item, an
+// empty selection, custom free-text, or the "拒绝" option all deny. Pure so the
+// answer table is unit-tested without a runtime.
+export function releaseConsentGranted(answer) {
+  if (answer === undefined || answer === null || !Array.isArray(answer.answers)) return false;
+  const item = answer.answers.find((a) => a !== undefined && a !== null && a.id === "release-confirm");
+  return item !== undefined && Array.isArray(item.selected) && item.selected.includes("同意");
 }
 
 // ORM auto-sync markers that can silently alter a production schema. A release

@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -103,6 +103,21 @@ test("releaseApprovalDenyReason: allowed-once is the only grant; never/reject/ca
   assert.ok(releaseApprovalDenyReason("unavailable").includes("fail-closed"));
   // any unknown outcome is fail-closed, never a silent grant
   assert.ok(releaseApprovalDenyReason("bogus").includes("bogus"));
+});
+
+test("releaseConsentGranted: only the explicit 同意 option grants (FB-20260815-001)", () => {
+  // The gate asks through userQuestions.ask() so a definite human answer is
+  // required even under approval=never. Only the "同意" option is a grant.
+  assert.strictEqual(releaseConsentGranted({ answers: [{ id: "release-confirm", selected: ["同意"] }] }), true);
+  assert.strictEqual(releaseConsentGranted({ answers: [{ id: "release-confirm", selected: ["拒绝"] }] }), false);
+  assert.strictEqual(releaseConsentGranted({ answers: [{ id: "release-confirm", selected: [] }] }), false);
+  // custom free-text is not a definite answer — must not grant
+  assert.strictEqual(releaseConsentGranted({ answers: [{ id: "release-confirm", selected: [], custom: "同意吧" }] }), false);
+  // wrong id / missing item / malformed answer denies (never a silent grant)
+  assert.strictEqual(releaseConsentGranted({ answers: [{ id: "other", selected: ["同意"] }] }), false);
+  assert.strictEqual(releaseConsentGranted({ answers: [] }), false);
+  assert.strictEqual(releaseConsentGranted(undefined), false);
+  assert.strictEqual(releaseConsentGranted(null), false);
 });
 
 test("releaseGaps aggregates every unmet item", () => {

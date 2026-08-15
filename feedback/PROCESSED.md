@@ -22,4 +22,4 @@
 - Disposition: FIXED@0.9.0 — prompt-routing 每回合指针第①条与 `nseos-build-feature` Step 5 新增降级出口:子代理多轮零文件输出(目标目录没建、`list_agents` 一直 running)时,主会话直接实现(测试驱动)+ 在 `.impl-boundary-ack` 记越界 + 独立评审必查,不再无信号等待。`AUTONOMY_POLICY` 实现边界行补唯一例外并强调非放宽。注意:根因(DSH 子代理零输出)属运行时行为,本次修的是「交子代理不再变成无信号等待」这一面,运行时零输出的排查不在 preset 内。
 
 ## FB-20260815-001 — 审批策略=never 时发布/部署门禁没有人类授权路径
-- Disposition: FIXED@0.9.0 — `releaseApprovalDenyReason("rejected")` 重写:明说「对话打字说允许不算授权,门禁只认审批弹窗点击」,并给模型一段一字不改转给人类的话,把「改回 ask」这条恢复动作直接摆到人类眼前,不再靠模型转述(转述有损耗)。未采用「文字授权升级」方案——那会重开 FB-20260814-003 堵上的口子(模型可自铸「人类说允许」),审批弹窗是唯一不可自铸的授权通道,这条硬边界保留。
+- Disposition: FIXED@0.10.0 — 人类批准层改走 `userQuestions.ask()` 直接问人类:不受审批策略影响,答案回门禁而非模型,所以 approval=never / full-access 下也能问、也必须点选「同意」才放行;`approval.request()` 降为无 `userQuestions` 服务时的 fallback。v0.9.0 的「重写 deny 文案让模型转述改回 ask」只算 fallback 文案,没解决「人要被问到」这一层,已在 v0.10.0 真正闭环。未采用「对话打字=授权」方案——那会重开 FB-20260814-003 堵上的口子(模型可自铸「人类说允许」)。

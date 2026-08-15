@@ -8,7 +8,7 @@
 
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { startInProcessRun } from "@deepseek-ai/dsh-subagent-in-process-driver";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, RELEASE_PATTERNS, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -58,12 +58,17 @@ export const inject = [];
 export function apply(ctx) {
   const fs = ctx.get("fs");
   if (fs === undefined) return;
-  // The approval service is the one non-model-mintable human-confirmation
-  // channel. The action-gate escalates release/deploy to it (FB-20260814-003)
-  // so an autonomous long-run under approval=never cannot self-mint
-  // marker+credential and push to production. Undefined in a minimal
-  // composition; the gate then fails closed on release/deploy rather than
-  // silently allowing.
+  // The approval service (approval.request) and the user-questions service
+  // (userQuestions.ask) are the two non-model-mintable human-confirmation
+  // channels. The action-gate escalates release/deploy to a human answer
+  // (FB-20260814-003) so an autonomous long-run cannot self-mint
+  // marker+credential and push to production. approval.request() is gated by
+  // the session approval policy — under "never" it auto-rejects without asking,
+  // which wedged release (FB-20260815-001). userQuestions.ask() is NOT gated by
+  // that policy: it asks the human through the UI and returns the answer to the
+  // gate, so a definite human "同意" is required even under never/full-access.
+  // Either may be undefined in a minimal composition; the gate then fails closed
+  // on release/deploy rather than silently allowing.
   const approval = ctx.get("approval");
 
   // Register the read-only reviewer subagent backend. The spawn backend already
@@ -549,22 +554,64 @@ export function apply(ctx) {
             reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
           };
         }
-        // ── 人类批准层(FB-20260814-003)─────────────────────────────────
+        // ── 人类批准层(FB-20260814-003 / FB-20260815-001)────────────────
         // 上面的 marker + release 凭据全是模型可自铸的「自证」,过了只证明模型做了功课,不证明有人授权。
-        // 唯一不可自铸的通道是 DSH 审批服务:never 下它确定性拒绝(没人可问),ask 下才真正弹窗。
-        // 所以发布/部署必须关到一次真实人类批准上,否则自主长跑能自铸全链条然后推生产
+        // 所以发布/部署必须关到一次真实人类回答上,否则自主长跑能自铸全链条然后推生产
         // (现场:某业务仓库在 approval=never 下连推 15 版)。
-        if (approval === void 0) {
-          return {
-            kind: "deny",
-            reason: "发布/部署类命令需要人类批准,但本部署未挂载审批服务,无法取得确认——按 fail-closed 拦截,未执行任何发布/部署。",
-          };
-        }
+        // 首选 userQuestions.ask():它不受审批策略影响(never 只关 approval.request() 的弹窗),
+        // 答案直接回到门禁而不是模型(不可自铸),所以即使开了 full access / never,人类也能被问到、
+        // 也必须给出确定答复(选「同意」)才放行——这正是 FB-20260815-001 要的,而不是让模型转述「改回 ask」。
         const agent = exec.agent;
         if (agent === void 0) {
           return {
             kind: "deny",
-            reason: "发布/部署类命令需要人类批准,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。",
+            reason: "发布/部署类命令需要人类确认,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。",
+          };
+        }
+        if (isSubagent(exec)) {
+          return {
+            kind: "deny",
+            reason: "发布/部署类命令需要人类确认,但子代理没有可对话的人类回答者——请回到编排会话(主会话)发起发布/部署,不要由子代理代推。",
+          };
+        }
+        const userQuestions = ctx.get("userQuestions");
+        if (userQuestions !== undefined) {
+          const askKind = isDeploy && !isRelease ? "部署类命令(ssh/scp/rsync/kubectl)" : "发布类命令(git push / git tag 等)";
+          let answer;
+          try {
+            answer = await userQuestions.ask({
+              questions: [{
+                id: "release-confirm",
+                header: "发布/部署确认",
+                question: askKind + "将要执行。是否允许?",
+                options: [
+                  { label: "同意", description: "允许执行本次发布/部署命令。" },
+                  { label: "拒绝", description: "不执行本次发布/部署命令。" },
+                ],
+              }],
+              agent,
+              signal: exec.signal,
+            });
+          } catch (e) {
+            gateWarn("action-gate userQuestions", e);
+            return {
+              kind: "deny",
+              reason: "发布/部署的人类确认提问失败(" + (e && e.message ? e.message : String(e)) + "),按 fail-closed 拦截,未执行任何发布/部署。",
+            };
+          }
+          if (!releaseConsentGranted(answer)) {
+            return {
+              kind: "deny",
+              reason: "发布/部署未获人类「同意」,未执行任何发布/部署。若要执行,重试并在提问里选「同意」(打字不算,必须点选)。",
+            };
+          }
+          return next();
+        }
+        // 无 userQuestions 服务时退回 approval.request()(受审批策略影响:never 下确定拒绝)。
+        if (approval === void 0) {
+          return {
+            kind: "deny",
+            reason: "发布/部署类命令需要人类确认,但本部署既未挂载问人类服务、也未挂载审批服务——按 fail-closed 拦截,未执行任何发布/部署。",
           };
         }
         let outcome;

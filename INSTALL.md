@@ -53,6 +53,15 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 ## 5. Changelog
 
+### v0.10.0 — 2026-08-15 发布/部署确认改用「直接问人类」,approval=never / full-access 下也要明确同意才放行
+
+**门禁(`@deliveli/nseos-gates`)**:
+- 人类批准层(FB-20260815-001 真正修法):发布/部署的确认从 `approval.request()` 改走 `userQuestions.ask()`。前者受审批策略影响——`approval=never` 下直接拒绝、弹不出窗、人类无法授权(正是 v0.9.0 只靠「转述改回 ask」没解决的那个死路);后者**不受审批策略影响**:门禁直接向人类提问,答案回到门禁而非模型,所以**即使开了 full access 沙箱、即使审批策略是 never,发布/部署前都会问一次,只有人类点选「同意」才放行**。`userQuestions` 服务不可用时才退回 `approval.request()` 老路径。
+- 新增纯谓词 `releaseConsentGranted`:只有人类对「release-confirm」问题明确选了「同意」才算授权;拒绝、空选、自定义文字、答错 id、畸形答案一律 deny(绝不静默放行)。
+- 子代理(`delegationDepth > 0`)发起的发布/部署直接 deny:子代理没有可对话的人类回答者,不该代推,回编排会话发起。
+
+**测试**:`releaseConsentGranted` 新增 8 条负控制断言,共 26 测试全绿。
+
 ### v0.9.0 — 2026-08-15 子代理零输出降级指引 + 审批=never 死路的人类可见恢复
 
 **门禁(`@deliveli/nseos-gates`)**:
