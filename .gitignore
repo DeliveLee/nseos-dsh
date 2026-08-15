@@ -1,0 +1,3 @@
+# Local symlink to the DSH profile node_modules for running the wiring tests
+# from source (see packages/nseos-gates/test/wiring.test.js header).
+packages/nseos-gates/node_modules

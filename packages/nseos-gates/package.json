@@ -1,12 +1,15 @@
 {
   "name": "@deliveli/nseos-gates",
   "description": "AI-NSEOS delivery-governance gates for DSH: flow-marker predicate + skill/doc/action/progress gates + read-only reviewer subagent, all fail-open.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./core": "./lib/core.js"
+  },
+  "scripts": {
+    "test": "node --test"
   },
   "files": [
     "lib/index.js",
