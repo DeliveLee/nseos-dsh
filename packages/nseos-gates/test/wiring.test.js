@@ -22,25 +22,37 @@ try {
 const skip = skipReason ? { skip: "peer deps unresolved: " + skipReason } : {};
 
 // ── minimal in-memory fs mock ──────────────────────────────────────────────
+// Faithful to the REAL DSH fs contract: `resolve` returns a {targetKey,
+// displayPath} OBJECT (not a string), and stat/readText/listDir consume that
+// object. This is what makes the mock able to catch the "resolve result is an
+// object, not a path string" class of bug (the gitDir/gitHead regression).
 function makeFs(tree) {
   // tree: { "abs/path": "content" | null (dir) | ["entry", ...] }
+  const keyOf = (t) => (typeof t === "string" ? t : t && t.targetKey);
   const resolve = (rel, opts) => {
-    const base = opts && opts.cwd ? opts.cwd.replace(/\/$/, "") : "";
-    return base + "/" + rel;
+    let path;
+    if (rel.startsWith("/")) path = rel; // absolute passes through
+    else {
+      const base = opts && opts.cwd ? opts.cwd.replace(/\/$/, "") : "";
+      path = base + "/" + rel;
+    }
+    return { targetKey: path, displayPath: path };
   };
   const stat = async (target) => {
-    if (!(target in tree)) return undefined;
-    return { type: Array.isArray(tree[target]) ? "directory" : "file", name: target.split("/").pop() };
+    const k = keyOf(target);
+    if (!(k in tree)) return undefined;
+    return { type: Array.isArray(tree[k]) ? "directory" : "file", name: k.split("/").pop() };
   };
   const readText = async (target) => {
-    const v = tree[target];
+    const v = tree[keyOf(target)];
     if (typeof v === "string") return v;
     return undefined;
   };
   const listDir = async (dir) => {
-    const v = tree[dir];
-    if (!Array.isArray(v)) throw new Error("not a dir: " + dir);
-    return v.map((name) => ({ name, type: tree[dir + "/" + name] === null || Array.isArray(tree[dir + "/" + name]) ? "directory" : "file" }));
+    const k = keyOf(dir);
+    const v = tree[k];
+    if (!Array.isArray(v)) throw new Error("not a dir: " + k);
+    return v.map((name) => ({ name, type: tree[k + "/" + name] === null || Array.isArray(tree[k + "/" + name]) ? "directory" : "file" }));
   };
   return { resolve, stat, readText, listDir };
 }
@@ -210,4 +222,25 @@ test("action-gate: prod-schema scan unknown (unreadable candidate) is fail-loud 
   const r = await actionGate(exec, enter);
   assert.strictEqual(r.kind, "deny", "prod-schema unknown must be fail-loud deny, never a silent allow");
   assert.ok(r.reason.includes("prod-schema"), "deny reason must name the prod-schema unknown");
+});
+
+test("action-gate: gitBranch reads .git/HEAD → bare push on trunk is release (regression guard)", skip, async () => {
+  // Regression guard for the gitDir object-vs-string bug: `fs.resolve` returns a
+  // {targetKey, displayPath} OBJECT; gitDir must extract the string path before
+  // concatenating "/HEAD". If it returns the object, gitBranch yields undefined,
+  // a bare `git push` on main is NOT flagged, and the release slips through.
+  const tree = {
+    "/repo/.git": null,
+    "/repo/.git/HEAD": "ref: refs/heads/main",
+    "/repo/.git/refs/heads/main": "a".repeat(40),
+    "/repo/ai-nseos/PROJECT_PROFILE.md": "Delivery mode: interactive",
+    "/repo/src/index.ts": "// code",
+  };
+  const { ctx, handlers } = makeCtx(makeFs(tree));
+  apply(ctx);
+  const actionGate = handlers.get("tools/pre-execute")[1];
+  const exec = makeExec({ name: "bash", command: "git push", sessionId: "s1", cwd: "/repo" });
+  const r = await actionGate(exec, enter);
+  assert.strictEqual(r.kind, "deny", "bare push on trunk must be release-class (gitBranch must resolve main)");
+  assert.ok(/主干.*main|git push/.test(r.reason), "deny reason must name the trunk");
 });

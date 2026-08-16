@@ -340,6 +340,9 @@ export function apply(ctx) {
     try {
       const dotGit = await fs.resolve(".git", cwd ? { cwd } : undefined);
       const content = await safeRead(dotGit);
+      // fs.resolve returns a {targetKey, displayPath} object — extract the real
+      // string path before doing any path concatenation.
+      const dotGitPath = String(dotGit.targetKey);
       if (content !== undefined) {
         const m = content.trim().match(/^gitdir:\s*(.+?)\s*$/);
         if (m) {
@@ -348,7 +351,7 @@ export function apply(ctx) {
           // pointers pass through; relative ones (submodule `../.git/modules/x`)
           // resolve against the directory that holds the `.git` file.
           if (/^(\/|[A-Za-z]:[\\/])/.test(target)) return target;
-          const base = dotGit.includes("/") ? dotGit.slice(0, dotGit.lastIndexOf("/")) : ".";
+          const base = dotGitPath.includes("/") ? dotGitPath.slice(0, dotGitPath.lastIndexOf("/")) : ".";
           try {
             return process.getBuiltinModule("node:path").normalize(base + "/" + target);
           } catch (e) {
@@ -356,7 +359,7 @@ export function apply(ctx) {
           }
         }
       }
-      return dotGit;
+      return dotGitPath; // string path of the .git directory
     } catch (e) {
       return undefined;
     }
