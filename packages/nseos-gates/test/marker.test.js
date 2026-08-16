@@ -3,7 +3,7 @@
 // only counts after a relevant fault can make it red).
 import assert from "node:assert";
 import { test } from "node:test";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "../lib/core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_PATTERNS, classifyReleaseBash, deployIntent, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "../lib/core.js";
 
 const SID = "sess-abc123";
 const NOW = 1_800_000_000_000; // fixed epoch for determinism
@@ -53,6 +53,20 @@ test("active: fresh marker attributed to this session (and exactly at the window
   assert.strictEqual(evaluateMarker(fresh(justNow), SID, NOW).status, "active");
   const edge = new Date(NOW - 4 * 3600 * 1000).toISOString();
   assert.strictEqual(evaluateMarker(fresh(edge), SID, NOW).status, "active");
+});
+
+test("evaluateMarker exposes started_at so the consent latch can key an episode on it", () => {
+  const startedAt = new Date(NOW).toISOString();
+  const active = evaluateMarker(fresh(startedAt), SID, NOW);
+  assert.strictEqual(active.status, "active");
+  assert.strictEqual(active.startedAt, startedAt, "active marker must expose its started_at");
+  // a stale marker still exposes its started_at (a refreshed flow is a new episode)
+  const old = new Date(NOW - 5 * 3600 * 1000).toISOString();
+  const stale = evaluateMarker(fresh(old), SID, NOW);
+  assert.strictEqual(stale.status, "stale");
+  assert.strictEqual(stale.startedAt, old, "stale marker must expose its started_at");
+  // absent/unattributable markers expose no started_at (no episode identity)
+  assert.strictEqual(evaluateMarker(undefined, SID, NOW).startedAt, undefined);
 });
 
 test("slug sanitizes path-hostile ids", () => {
@@ -165,6 +179,16 @@ test("classifyReleaseBash: version-tag requires v-prefix; shell chaining still c
   assert.ok(classifyReleaseBash("git push origin main && echo done"), "leading trunk push");
   assert.ok(classifyReleaseBash("git commit -am x; git push origin main"), "trunk push after ;");
   assert.strictEqual(classifyReleaseBash("git status && git log"), undefined, "two benign segments stay benign");
+});
+
+test("deployIntent names the specific deploy class, not the generic family", () => {
+  assert.strictEqual(deployIntent("ssh mp 'sudo bash -s'"), "通过 ssh 登录服务器执行命令");
+  assert.strictEqual(deployIntent("scp file.txt mp:/tmp/"), "通过 scp 向服务器传输文件");
+  assert.strictEqual(deployIntent("rsync -avz ./dist mp:/var/www"), "通过 rsync 同步文件到服务器");
+  assert.strictEqual(deployIntent("kubectl apply -f deploy.yaml"), "通过 kubectl 操作 Kubernetes 集群");
+  assert.strictEqual(deployIntent(undefined), "直接操作生产服务器");
+  // ssh-keygen is NOT deploy-class, so the label falls through to the generic
+  assert.strictEqual(deployIntent("ssh-keygen -t ed25519"), "直接操作生产服务器");
 });
 
 test("deploy patterns catch remote/production commands, not local key tools", () => {

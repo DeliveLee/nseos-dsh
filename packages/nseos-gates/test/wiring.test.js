@@ -58,14 +58,28 @@ function makeFs(tree) {
 }
 
 // ── minimal ctx mock: capture handlers, provide services ──────────────────
-function makeCtx(fs) {
+// userQuestions (optional) is a function taking the ask payload and returning
+// the human's answer; calls/asks/lastAsk record how many times the gate asked
+// and with what, so the "consolidate to one popup" behavior is testable.
+function makeCtx(fs, userQuestions) {
   const handlers = new Map(); // event -> [handler, ...]
+  const calls = { asks: 0, lastAsk: undefined };
   const ctx = {
     get(name) {
       if (name === "fs") return fs;
       if (name === "subagents") return { registerProvider() {} };
       if (name === "approval") return undefined;
-      if (name === "userQuestions") return undefined;
+      if (name === "userQuestions") {
+        return userQuestions
+          ? {
+              ask: async (payload) => {
+                calls.asks += 1;
+                calls.lastAsk = payload;
+                return userQuestions(payload);
+              },
+            }
+          : undefined;
+      }
       if (name === "sessionQuery") return undefined;
       return undefined;
     },
@@ -74,7 +88,7 @@ function makeCtx(fs) {
       handlers.get(event).push(handler);
     },
   };
-  return { ctx, handlers };
+  return { ctx, handlers, calls };
 }
 
 function makeExec({ name, command, file_path, sessionId, cwd, delegationDepth }) {
@@ -93,6 +107,23 @@ function makeExec({ name, command, file_path, sessionId, cwd, delegationDepth })
 function businessRepoTree() {
   return {
     "/repo/.git": null,
+    "/repo/src/index.ts": "// code",
+  };
+}
+
+// A business repo fully ready to release: init'd, fresh flow marker, and a
+// release credential bound to the current HEAD (independent review). This is
+// what lets the action-gate reach the human-approval layer instead of denying
+// earlier on a missing credential.
+function releaseReadyTree(head) {
+  const h = head || "a".repeat(40);
+  return {
+    "/repo/.git": null,
+    "/repo/.git/HEAD": "ref: refs/heads/main",
+    "/repo/.git/refs/heads/main": h,
+    "/repo/ai-nseos/PROJECT_PROFILE.md": "Delivery mode: interactive",
+    "/repo/ai-nseos/state/flow/s1.json": JSON.stringify({ session_id: "s1", started_at: new Date().toISOString(), mode: "x", contract: "x" }),
+    "/repo/ai-nseos/state/.release-ready.json": JSON.stringify({ review: { head_sha: h, independent: true, note: "quality-reviewer: 测试绿 + 变异负控制转红" } }),
     "/repo/src/index.ts": "// code",
   };
 }
@@ -243,4 +274,42 @@ test("action-gate: gitBranch reads .git/HEAD → bare push on trunk is release (
   const r = await actionGate(exec, enter);
   assert.strictEqual(r.kind, "deny", "bare push on trunk must be release-class (gitBranch must resolve main)");
   assert.ok(/主干.*main|git push/.test(r.reason), "deny reason must name the trunk");
+});
+
+test("action-gate: release + deploy sequence asks the human ONCE (consolidated popup)", skip, async () => {
+  const tree = releaseReadyTree();
+  const answer = () => ({ answers: [{ id: "release-confirm", selected: ["同意"] }] });
+  const { ctx, handlers, calls } = makeCtx(makeFs(tree), answer);
+  apply(ctx);
+  const actionGate = handlers.get("tools/pre-execute")[1];
+  // 1) the release push: full credentials + human consent → allowed, one ask
+  const push = await actionGate(makeExec({ name: "bash", command: "git push origin main", sessionId: "s1", cwd: "/repo" }), enter);
+  assert.strictEqual(push.kind, "enter", "release push with credentials + consent must pass");
+  assert.strictEqual(calls.asks, 1, "the first release command asks the human once");
+  // 2) the deploy command in the SAME episode (same marker + HEAD) → no re-ask
+  const deploy = await actionGate(makeExec({ name: "bash", command: "ssh deploy@prod 'deploy.sh'", sessionId: "s1", cwd: "/repo" }), enter);
+  assert.strictEqual(deploy.kind, "enter", "the deploy command in the same episode must pass");
+  assert.strictEqual(calls.asks, 1, "the deploy command must NOT re-ask — one popup per episode");
+  // the popup explains intent → command → consequence
+  const q = calls.lastAsk.questions[0];
+  assert.strictEqual(q.header, "发布/部署确认");
+  assert.ok(q.question.includes("要做什么"), "popup must state the intent");
+  assert.ok(q.question.includes("git push origin main"), "popup must show the actual command");
+  assert.ok(q.question.includes("所以要执行"), "popup must state the action (命令)");
+  assert.ok(q.question.includes("后果"), "popup must state the consequence");
+});
+
+test("action-gate: a refreshed flow marker is a NEW episode and re-asks", skip, async () => {
+  const tree = releaseReadyTree();
+  const answer = () => ({ answers: [{ id: "release-confirm", selected: ["同意"] }] });
+  const { ctx, handlers, calls } = makeCtx(makeFs(tree), answer);
+  apply(ctx);
+  const actionGate = handlers.get("tools/pre-execute")[1];
+  await actionGate(makeExec({ name: "bash", command: "git push origin main", sessionId: "s1", cwd: "/repo" }), enter);
+  assert.strictEqual(calls.asks, 1);
+  // refresh the flow marker (new started_at) → new episode → must re-ask
+  tree["/repo/ai-nseos/state/flow/s1.json"] = JSON.stringify({ session_id: "s1", started_at: new Date(Date.now() + 1000).toISOString(), mode: "x", contract: "x" });
+  const again = await actionGate(makeExec({ name: "bash", command: "git push origin main", sessionId: "s1", cwd: "/repo" }), enter);
+  assert.strictEqual(again.kind, "enter");
+  assert.strictEqual(calls.asks, 2, "a refreshed flow marker (new episode) must re-ask, not a blanket session grant");
 });

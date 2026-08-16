@@ -78,6 +78,19 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 - **stale 三态机器自检**——当前是维护流程里手动 diff 哨兵(DSH 无 hook 接线层,合理降级)。
 - **PARITY_CHECKLIST 剩余项活会话验收 + 接线测试扩展**(humanApprove/prod-schema-unknown/ledger-第3文件/doc-gate术语门 等未覆盖分支)。
 
+### v0.14.0 — 2026-08-15 发布/部署确认合并成一次 + 弹窗讲清「要做什么 → 所以要执行什么」
+
+> 用户反馈:每次部署 `git push → ssh → rsync` 会连弹好几次「发布/部署确认」,且弹窗只写「要动 ssh / 提交」,没有解释。本次把同一发布/部署 episode 的多次弹窗合并成一次,并让弹窗讲清意图→命令→后果。
+
+**门禁(`@deliveli/nseos-gates`)**:
+- **合并成一次(episode 同意锁存)**:`humanApprove` 现在按「flow-marker `started_at` + 当前 git HEAD」识别一个发布/部署 episode,同一 episode 内后续 deploy-class 命令(ssh/scp/rsync/kubectl、以及同 HEAD 的再 push)共享那次人类「同意」,不再逐条弹窗。新流程(标记刷新)或新版本(HEAD 变化)是新 episode,重新问;纯内存、`agent/disposed` 时清、进程重启即失效(不是第二个有生命周期状态组件,同 `ledgerState`)。
+- **弹窗讲清意图→命令→后果**:`kindLabel` 从笼统的「部署类命令(ssh/scp/rsync/kubectl)」改成具体意图(`部署:通过 ssh 登录服务器执行命令` / `发布:git push 到主干 main`),弹窗正文变为「要做什么 / 所以要执行:`<命令>` / 后果:改动会出去到远程仓库/生产环境 / 是否允许?」。
+- **诚实边界(不重开 FB-20260814-003)**:episode 合并只在「已经拿到一次真实人类『同意』」之后生效——自主长跑仍需至少一次人类批准;新版本(HEAD 变化)会先被 release 凭据的 `head_sha` 校验拦下,重做凭据后仍是新 episode 重问。DSH sandbox/approval 仍是真实安全边界,本层是治理层。
+
+**验证(P3)**:
+- `evaluateMarker` 新增暴露 `started_at`(供 episode 键);`deployIntent` 纯函数(部署类别→平实描述)。
+- 接线测试新增 2 条:「release + deploy 序列只问一次(合并弹窗)+ 弹窗含意图/命令/后果」「刷新 flow marker 是新 episode 重新问」。测试 45(33 谓词 + 12 接线)全绿。
+
 ### v0.12.0 — 2026-08-15 「根因是假设,先证明再动手」——治「自以为知道根因、完全不调查」
 
 **门禁(`@deliveli/nseos-gates`)**:

@@ -284,6 +284,18 @@ export const DEPLOY_PATTERNS = [
   /\bkubectl\s+/,
 ];
 
+// Plain-language label for a deploy-class command, used by the action-gate's
+// human-confirmation popup so the human sees WHAT the deploy is (not just the
+// generic "ssh/scp/rsync/kubectl" family). Matches the DEPLOY_PATTERNS order.
+export function deployIntent(cmd) {
+  if (typeof cmd !== "string") return "直接操作生产服务器";
+  if (/\bssh\s+/.test(cmd)) return "通过 ssh 登录服务器执行命令";
+  if (/\bscp\s+/.test(cmd)) return "通过 scp 向服务器传输文件";
+  if (/\brsync\s+/.test(cmd)) return "通过 rsync 同步文件到服务器";
+  if (/\bkubectl\s+/.test(cmd)) return "通过 kubectl 操作 Kubernetes 集群";
+  return "直接操作生产服务器";
+}
+
 // Closing text that declares completion — deliberately BROAD. The progress-gate
 // is an advisory "report a number" steer: a false positive costs one extra
 // nudge while a false negative is the drift itself (FB-20260805-001/004 — "坏
@@ -392,9 +404,9 @@ export function evaluateMarker(text, sessionId, now = Date.now()) {
   const t = Date.parse(obj.started_at);
   if (Number.isNaN(t)) return { status: "unattributable", reason: "unparseable started_at" };
   if (now - t > WINDOW_HOURS * 3600 * 1000) {
-    return { status: "stale", reason: "marker older than " + WINDOW_HOURS + "h window" };
+    return { status: "stale", reason: "marker older than " + WINDOW_HOURS + "h window", startedAt: obj.started_at };
   }
-  return { status: "active", reason: "fresh marker attributed to this session" };
+  return { status: "active", reason: "fresh marker attributed to this session", startedAt: obj.started_at };
 }
 
 // Release readiness: which of init / flow-marker / prod-schema are unmet.

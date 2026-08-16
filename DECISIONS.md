@@ -46,6 +46,14 @@
 
 见 `MIGRATION_PLAN.md` §0.2:不自建状态机 / 原生 event 不 subprocess hook / 真 deny + fail-open 必告警 / 不全量注入 / 可逆+声明+git 回滚 / 按动作类别 fail-open/fail-loud 二分 / 开放世界身份 / 只依赖承诺契约 / 源仓库自我豁免 / 人类逃生舱 / honest-scope(提醒≠安全边界)。
 
+## D6 · 发布/部署确认合并成一次 + 弹窗意图化(v0.14.0,用户直接要求)
+
+- **问题**:FB-20260814-003 / FB-20260815-001 之后,发布/部署必须关到一次真实人类回答,但实现是「每条 deploy-class 命令问一次」——一次部署 = `git push` + `ssh` + `rsync` = 连弹好几次,且弹窗只写「部署类命令(ssh/scp/rsync/kubectl)将要执行」,没有「要干什么所以要执行什么」的解释。
+- **裁决**:合并成一次——`humanApprove` 按 episode 识别,episode = flow-marker `started_at` + 当前 git HEAD;同一 episode 内后续 deploy-class 命令共享那次人类「同意」,不再逐条弹窗。弹窗文案改成「要做什么 → 所以要执行:`<命令>` → 后果:改动会出去到远程仓库/生产环境 → 是否允许?」,`kindLabel` 用 `deployIntent` 给出具体意图(ssh/scp/rsync/kubectl 各有平实描述)。
+- **D4 不越线**:episode 锁存是纯内存 `Map`(keyed by session,`agent/disposed` 清,进程重启失效),没有 TTL/迁移/跨会话持久化,不是「有生命周期的状态组件」;episode 键只复用已有的 flow-marker `started_at` + git HEAD,没有新状态文件。
+- **不重开 FB-20260814-003(诚实边界,写死)**:合并只在「已拿到一次真实人类『同意』」之后生效,自主长跑仍需至少一次人类批准;新版本(HEAD 变化)先被 release 凭据的 `head_sha` 校验拦下,重做凭据后仍是新 episode、重新问;deploy-class(ssh 等)不动 HEAD,其 episode 边界是 flow-marker(新流程刷新 marker = 新 episode)。DSH sandbox/approval 仍是真实安全边界,本层是治理层。
+- **fallback 保持 per-command**:无 `userQuestions` 服务时退回 `approval.request()`,`allowed-once` 是一次性授权,不做 episode 合并(合并语义只属于 `userQuestions.ask()` 这条主路径)。
+
 ## 分发模型(用户已裁决)
 
 - 迁移产物落一个单独 GitHub 私有库;每次阶段完成打 tag + release;`nseos` preset + skills 通过该库分发。仓库名/地址待用户提供。

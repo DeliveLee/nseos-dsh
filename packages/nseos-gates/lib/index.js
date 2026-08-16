@@ -7,7 +7,7 @@
 // silent. Pure predicates live in core.js (unit-tested); this file wires fs+events.
 
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, classifyReleaseBash, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "./core.js";
+import { DONE_CLAIM_PATTERNS, DEPLOY_PATTERNS, PROD_SCHEMA_CANDIDATES, PROD_SCHEMA_PATTERNS, classifyReleaseBash, deployIntent, enteredFlow, evaluateMarker, isBookkeepingPath, isDoneClaim, isNseosSkill, isProductCodePath, releaseApprovalDenyReason, releaseConsentGranted, releaseCredentialCheck, releaseGaps, slug, targetAmbiguity } from "./core.js";
 
 const FLOW_DIR = "ai-nseos/state/flow";
 
@@ -291,6 +291,16 @@ export function apply(ctx) {
   // Entries are evicted on agent/disposed so the Map stays bounded.
   const ledgerState = new Map(); // sessionId -> { files: Set<string>, nudged: boolean }
 
+  // Release/deploy consent latch: one human "同意" covers ONE release/deploy
+  // episode, so a deploy sequence of several deploy-class bash commands
+  // (git push → ssh → rsync → kubectl) asks the human ONCE instead of once per
+  // command. The episode identity is (flow-marker started_at + current HEAD) —
+  // both already existing state components, NOT a new one — so a refreshed flow
+  // marker or a moved HEAD is a NEW episode that re-asks. Ephemeral in-memory
+  // state (like ledgerState): no TTL, no migration, no cross-session
+  // persistence; evicted on agent/disposed, and a process restart re-asks.
+  const releaseConsent = new Map(); // sessionId -> { episode: string }
+
   // Resolve the task's countable ledger to a path, the literal "NONE" (human
   // declined), or undefined (no ledger and no answer yet). Order: marker
   // goal_source → PROJECT_PROFILE "Progress source:" → default candidates.
@@ -432,7 +442,10 @@ export function apply(ctx) {
   ctx.on("agent/disposed", (payload) => {
     try {
       const id = payload && payload.agent && payload.agent.id;
-      if (id) ledgerState.delete(id);
+      if (id) {
+        ledgerState.delete(id);
+        releaseConsent.delete(id);
+      }
     } catch (e) {
       /* best-effort */
     }
@@ -567,14 +580,45 @@ export function apply(ctx) {
     }
   });
 
-  // ── 人类批准层(FB-20260814-003 / FB-20260815-001)────────────────────────
+  // ── 人类批准层(FB-20260814-003 / FB-20260815-001 / 合并弹窗)───────────────
   // marker + release 凭据全是模型可自铸的「自证」,过了只证明模型做了功课,不证明有人授权。
   // 所以发布/部署必须关到一次真实人类回答上,否则自主长跑能自铸全链条然后推生产
   // (现场:某业务仓库在 approval=never 下连推 15 版)。
   // 首选 userQuestions.ask():它不受审批策略影响(never 只关 approval.request() 的弹窗),
   // 答案直接回到门禁而不是模型(不可自铸),所以即使开了 full access / never,人类也能被问到、
   // 也必须给出确定答复(选「同意」)才放行。返回 undefined 表示已授权(调用方放行),否则返回 deny。
-  async function humanApprove(exec, kindLabel) {
+  //
+  // 合并成一次:同一发布/部署 episode(flow-marker started_at + 当前 HEAD 未变)只问一次人类,
+  // 后续 deploy-class 命令(git push → ssh → rsync → kubectl)共享那次「同意」,不再重复弹窗。
+  // 新流程(标记刷新)或新版本(HEAD 变化)是新 episode,重新问;进程重启/会话结束即失效。
+
+  // Episode identity for the release/deploy consent latch: the flow marker's
+  // started_at (refreshed on every new flow) + the current git HEAD (moved on
+  // every new version). Returns undefined when neither is determinable, so the
+  // caller fails safe and always asks.
+  async function consentEpisode(sessionId, cwd) {
+    if (!sessionId) return undefined;
+    const marker = await markerStatus(sessionId, cwd);
+    const startedAt = marker && typeof marker.startedAt === "string" ? marker.startedAt : "";
+    const head = await gitHead(cwd);
+    if (head === undefined && startedAt === "") return undefined;
+    return sessionId + "|" + startedAt + "|" + (head || "");
+  }
+
+  // 弹窗文案:一句话讲清「要做什么 → 所以要执行什么命令 → 会改动什么」,再问是否允许。
+  // 简短,但如实写后果(发布/部署会出去到远程仓库/生产环境),不软化严重性。
+  function releaseConfirmText(kindLabel, cmd) {
+    const raw = typeof cmd === "string" ? cmd.trim() : "";
+    const shown = raw === "" ? "(未提供命令文本)" : raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
+    return (
+      "要做什么:" + kindLabel + "。\n" +
+      "所以要执行:`" + shown + "`\n" +
+      "后果:改动会出去到远程仓库/生产环境,请确认这就是你要做的。\n" +
+      "是否允许执行?"
+    );
+  }
+
+  async function humanApprove(exec, kindLabel, cmd) {
     const agent = exec.agent;
     if (agent === void 0) {
       return { kind: "deny", reason: "发布/部署类命令需要人类确认,但本次调用没有可归属的 agent——按 fail-closed 拦截,未执行任何发布/部署。" };
@@ -582,6 +626,16 @@ export function apply(ctx) {
     if (isSubagent(exec)) {
       return { kind: "deny", reason: "发布/部署类命令需要人类确认,但子代理没有可对话的人类回答者——请回到编排会话(主会话)发起发布/部署,不要由子代理代推。" };
     }
+    // 同一 episode 已获人类「同意」→ 直接放行,不再重复弹窗。
+    const sessionId = sessionIdOf(exec);
+    const episode = await consentEpisode(sessionId, cwdOf(exec));
+    if (episode !== undefined) {
+      const prior = releaseConsent.get(sessionId);
+      if (prior !== undefined && prior.episode === episode) return undefined;
+    }
+    const grant = () => {
+      if (episode !== undefined) releaseConsent.set(sessionId, { episode });
+    };
     const userQuestions = ctx.get("userQuestions");
     if (userQuestions !== undefined) {
       let answer;
@@ -590,7 +644,7 @@ export function apply(ctx) {
           questions: [{
             id: "release-confirm",
             header: "发布/部署确认",
-            question: kindLabel + "将要执行。是否允许?",
+            question: releaseConfirmText(kindLabel, cmd),
             options: [
               { label: "同意", description: "允许执行本次发布/部署命令。" },
               { label: "拒绝", description: "不执行本次发布/部署命令。" },
@@ -606,9 +660,11 @@ export function apply(ctx) {
       if (!releaseConsentGranted(answer)) {
         return { kind: "deny", reason: "发布/部署未获人类「同意」,未执行任何发布/部署。若要执行,重试并在提问里选「同意」(打字不算,必须点选)。" };
       }
-      return undefined; // 已授权
+      grant();
+      return undefined; // 已授权(并记下这一 episode)
     }
     // 无 userQuestions 服务时退回 approval.request()(受审批策略影响:never 下确定拒绝)。
+    // 该 fallback 保持 per-command(allowed-once 是一次性授权),不做 episode 合并。
     if (approval === void 0) {
       return { kind: "deny", reason: "发布/部署类命令需要人类确认,但本部署既未挂载问人类服务、也未挂载审批服务——按 fail-closed 拦截,未执行任何发布/部署。" };
     }
@@ -673,12 +729,12 @@ export function apply(ctx) {
         return { kind: "deny", reason: "release/deploy 类命令:无法确认仓库类型(业务仓 or preset 源),按 fail-loud 处理不静默放行。" };
       }
       const kindLabel = isDeploy && releaseReason === undefined
-        ? "部署类命令(ssh/scp/rsync/kubectl)"
-        : "发布类命令(" + (releaseReason || "git push / git tag 等") + ")";
+        ? "部署:" + deployIntent(cmd)
+        : "发布:" + (releaseReason || "git push / git tag 等");
 
       // preset 源仓库:跳过业务仓工作流检查(无 ai-nseos/init),但仍要人类批准。
       if (repo === false) {
-        const denied = await humanApprove(exec, kindLabel);
+        const denied = await humanApprove(exec, kindLabel, cmd);
         return denied === undefined ? next() : denied;
       }
 
@@ -709,7 +765,7 @@ export function apply(ctx) {
         return {
           kind: "deny",
           reason:
-            kindLabel + "需本会话在 nseos 流程内(新鲜 flow marker)、无 ORM 自动迁移风险、且 release 凭据覆盖独立评审/文档/生产 schema。当前缺:\n- " +
+            kindLabel + " 需本会话在 nseos 流程内(新鲜 flow marker)、无 ORM 自动迁移风险、且 release 凭据覆盖独立评审/文档/生产 schema。当前缺:\n- " +
             gaps.join("\n- ") +
             "\n\n注意:flow marker 与 release 凭据是自证/自签,不是人类授权;凭据只在对应真实动作发生后写(自签充数=伪造,比缺更糟)。",
         };
@@ -723,7 +779,7 @@ export function apply(ctx) {
           reason: "release 凭据的 review.independent=false(自审),自审不能静默冒充独立评审。两条路任选其一后重试:①派一个没参与实现的 quality-reviewer 子代理做独立评审,产出报告后把 review.independent 改成 true 并重写 head_sha;②请人类明确确认这次自审发布放行。",
         };
       }
-      const denied = await humanApprove(exec, kindLabel);
+      const denied = await humanApprove(exec, kindLabel, cmd);
       return denied === undefined ? next() : denied;
     } catch (e) {
       gateWarn("action-gate", e);
