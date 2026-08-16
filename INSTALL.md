@@ -89,7 +89,7 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 **验证(P3)**:
 - `evaluateMarker` 新增暴露 `started_at`(供 episode 键);`deployIntent` 纯函数(部署类别→平实描述)。
-- 接线测试新增 2 条:「release + deploy 序列只问一次(合并弹窗)+ 弹窗含意图/命令/后果」「刷新 flow marker 是新 episode 重新问」。测试 45(33 谓词 + 12 接线)全绿。
+- 接线测试新增 2 条:「release + deploy 序列只问一次(合并弹窗)+ 弹窗含意图/命令/后果」「刷新 flow marker 是新 episode 重新问」。测试 45 全绿(34 谓词 + 11 接线)。
 
 ### v0.12.0 — 2026-08-15 「根因是假设,先证明再动手」——治「自以为知道根因、完全不调查」
 
