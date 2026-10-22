@@ -10,7 +10,7 @@
 ## FB-20260814-002 — action-gate 被自铸 flow marker 绕过(现场实锤)
 - Disposition: PARTIAL@0.4.0 — 已做两件:① action-gate 新增 `DEPLOY_PATTERNS`(`ssh`/`scp`/`rsync`/`kubectl`),生产部署命令不再完全绕过门禁;② deny 文案诚实化(「marker 是自证、不是授权,真实发布/部署先问人类」)。
 - **诚实边界(未做、也不该假装做了)**:flow marker 仍是模型自铸,「在流程内」是自证不是核验——这是架构事实(marker 必须模型可写才能进流程),真正的硬边界是 DSH sandbox + approval。`approval=never` 下没有任何机制能强制人类回答,这是用户的显式选择。本地 `sudo`/`systemctl`/`podman`/`docker` 因歧义过大未纳入 `DEPLOY_PATTERNS`。
-- **后续**:该「诚实边界」被真实事故证伪(某业务仓库在 `approval=never` + 自主长跑下连推 15 版上生产),于 v0.8.0 由 FB-20260814-003 闭环——见下。
+- **后续**:该「诚实边界」被真实事故证伪(某业务仓库 在 `approval=never` + 自主长跑下连推 15 版上生产),于 v0.8.0 由 FB-20260814-003 闭环——见下。
 
 ## FB-20260814-003 — 生产部署在 approval=never + 自主长跑下可无限推版(自铸可绕过,现场 15 版本上生产)
 - Disposition: FIXED@0.8.0 — action-gate 新增「人类批准层」:发布/部署命令通过 marker+凭据自证检查后,还要关到一次真实人类批准上。`approval=never` 下 `approval.request()` 确定性拒绝(模型无法自铸绕过,只能请人类把审批策略改回 ask),`ask` 下弹真实审批。新增纯谓词 `releaseApprovalDenyReason`(`allowed-once` 唯一放行,其余 fail-closed);未挂载审批服务或无归属 agent 时 fail-closed 拦截。测试 +1(共 25)。

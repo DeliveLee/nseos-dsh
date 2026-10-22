@@ -173,7 +173,7 @@ echo "$HOME/Documents/ObsidianVault" > ~/.dsh/ai-nseos/vault-path
 
 **诚实边界**:凭据仍是自签(advisory),「自签充数=伪造」由 deny 文案 + `RELEASE.md`/`AUTONOMY_POLICY.md` 纪律兜底,不是硬门;硬边界仍是 sandbox+approval。
 
-### v0.4.0 — 2026-08-14 部署命令纳入门禁 + 诚实化授权语义(某业务仓库 会话复盘)
+### v0.4.0 — 2026-08-14 部署命令纳入门禁 + 诚实化授权语义(某业务仓库会话复盘)
 
 **门禁(`@deliveli/nseos-gates`)**:
 - action-gate 新增 `DEPLOY_PATTERNS`(`ssh`/`scp`/`rsync`/`kubectl`),与 `RELEASE_PATTERNS` 同层 gating:业务仓库无新鲜 flow marker 时 deny。此前生产部署可用 `ssh mp 'sudo bash'` + `scp` 完全绕过门禁(只有 `git push/tag` 被拦,`FB-20260814-002`)。
